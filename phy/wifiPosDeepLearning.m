@@ -40,6 +40,8 @@ plot([rays{:,ceil(width(rays)/2)}],'ColorLimits',[50 95]);
 snrs = [10 15 20];
 
 % Configure
+generateData = false;
+if generateData
 cfg = heRangingConfig('ChannelBandwidth',chanBW, ...
     "NumTransmitAntennas",prod(txArraySize), ...
     "SecureHELTF",false);
@@ -50,7 +52,9 @@ cfg.User{1}.NumSpaceTimeStreams = prod(rxArraySize);
 
 % Split dataset
 [training,validation] = dlPositioningSplitDataSet(features,labels,0.2);
-
+else
+    load("data.mat");
+end
 % Layers
 layers = [
 
