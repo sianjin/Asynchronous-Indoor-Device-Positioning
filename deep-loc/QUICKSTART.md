@@ -54,17 +54,88 @@ tail -f logs/regression_baseline_*.log
 
 After training completes, evaluate the best model:
 
+**For Regression:**
 ```bash
 python scripts/evaluate.py --checkpoint checkpoints/regression_baseline_best.pth
 ```
 
-This will show:
-- Mean 3D error (meters)
-- Median error
-- Percentile errors (90th, 95th)
-- Per-axis errors (x, y, z)
+**For Classification:**
+```bash
+python scripts/evaluate.py --checkpoint checkpoints/classification_baseline_best.pth
+```
 
-### 4. Run Inference
+The script automatically detects the task type (regression or classification) from the checkpoint file and displays the appropriate metrics. See below for explanation of each metric.
+
+### 4. Understanding Evaluation Metrics
+
+#### Regression Metrics (3D Position Estimation)
+
+**Primary Metrics** (denormalized - in meters):
+
+| Metric | What It Means | Example |
+|--------|--------------|---------|
+| **`mean_error`** | Average 3D positioning error | `0.477m` = 47.7 cm average error |
+| **`median_error`** | 50% of predictions better than this | `0.233m` = half within 23.3 cm |
+| **`90th_percentile`** | 90% of predictions within this | `1.014m` = 90% within 1 meter |
+| **`95th_percentile`** | 95% of predictions within this | `1.642m` = 95% within 1.64 m |
+
+**Per-Axis Metrics:**
+
+| Metric | What It Means | Example |
+|--------|--------------|---------|
+| **`mae_x/y/z`** | Average error per coordinate (MAE) | `0.200m` = ±20 cm in that axis |
+| **`rmse_x/y/z`** | Error spread per coordinate (RMSE) | `0.491m` (penalizes large errors more) |
+
+**Quick Interpretation:**
+```
+mean_error: 0.477m     → Average positioning error (PRIMARY METRIC)
+median_error: 0.233m   → 50% of predictions within 23 cm
+90th_percentile: 1.014m → 90% within 1 meter
+mae_z: 0.033m          → Excellent height accuracy (3.3 cm)
+```
+
+**Performance Guide:**
+- **< 0.5m**: Excellent indoor localization
+- **0.5-1.0m**: Good performance
+- **> 1.0m**: Needs improvement
+
+---
+
+#### Classification Metrics (Location Class Prediction)
+
+**Metrics:**
+
+| Metric | Formula | What It Means | Example |
+|--------|---------|--------------|---------|
+| **`accuracy`** | `correct / total` | % of correct predictions **(PRIMARY)** | `1.000000` = 100% perfect! |
+| **`top5_accuracy`** | `true in top-5 / total` | % where true class in top-5 | `0.956` = 95.6% in top-5 |
+
+**Quick Interpretation:**
+```
+accuracy: 1.000000     → 100% correct (perfect classification!)
+top5_accuracy: 1.000000 → True class always in top-5
+```
+
+**Performance Guide:**
+- **100%**: Perfect classification
+- **> 90%**: Excellent
+- **80-90%**: Good
+- **70-80%**: Fair
+- **< 70%**: Needs improvement
+
+**Note**: `top5_accuracy` ≥ `accuracy` (always)
+
+---
+
+#### Task Comparison
+
+| | Regression | Classification |
+|---|------------|----------------|
+| **Output** | Continuous 3D coordinates (x, y, z) | Discrete location class (0-99) |
+| **Primary Metric** | `mean_error` (meters) | `accuracy` (%) |
+| **Use Case** | Precise positioning | Room/zone identification |
+
+### 5. Run Inference
 
 To run inference on new data:
 
@@ -90,8 +161,12 @@ With the default configuration:
 
 - **Training time**: 1-2 hours on CPU, 30-60 minutes on GPU
 - **Model size**: ~1.7M parameters
-- **Expected performance**: 0.3-0.8 meters mean error
-- **Target performance**: < 1.0 meter mean error
+- **Expected performance** (denormalized metrics):
+  - `mean_error`: 0.3-0.8 meters (average positioning error)
+  - `median_error`: 0.2-0.5 meters (median positioning error)
+  - `90th_percentile`: < 1.5 meters (90% of predictions within this)
+  - Per-axis MAE: 0.1-0.5 meters depending on axis
+- **Target performance**: `mean_error` < 1.0 meter
 
 ## Switching to Classification
 
