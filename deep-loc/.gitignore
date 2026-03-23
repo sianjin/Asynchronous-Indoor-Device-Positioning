@@ -40,9 +40,22 @@ env/
 checkpoints/
 *.pth
 *.pt
+*.onnx
 logs/
 runs/
 wandb/
+results/
+
+# Export utilities and documentation (optional - uncomment to ignore)
+src/utils/onnx_export.py
+src/utils/torchscript_export.py
+scripts/export_onnx.py
+scripts/export_torchscript.py
+scripts/export_models.py
+docs/ONNX_EXPORT.md
+docs/TORCHSCRIPT_EXPORT.md
+docs/MODEL_EXPORT.md
+EXPORT_QUICK_START.md
 
 # Data (keep data.mat as it's needed)
 # Uncomment if you want to ignore large data files

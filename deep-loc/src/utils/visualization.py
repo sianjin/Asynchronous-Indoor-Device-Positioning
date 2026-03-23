@@ -4,8 +4,11 @@ Visualization utilities for indoor localization.
 
 import os
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
-import seaborn as sns
+from pathlib import Path
+from datetime import datetime
 
 
 def plot_training_curves(metrics_history, save_path=None):
@@ -250,6 +253,123 @@ def plot_per_axis_errors(predictions, ground_truth, save_path=None):
         plt.show()
 
     plt.close()
+
+
+def compute_confusion_matrix(ground_truth, predictions, num_classes):
+    """
+    Compute confusion matrix without sklearn.
+
+    Args:
+        ground_truth: numpy array of true labels
+        predictions: numpy array of predicted labels
+        num_classes: number of classes
+
+    Returns:
+        confusion matrix of shape (num_classes, num_classes)
+    """
+    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
+    for true_label, pred_label in zip(ground_truth, predictions):
+        cm[true_label, pred_label] += 1
+    return cm
+
+
+def plot_confusion_matrix(predictions, ground_truth, category_names, checkpoint_path=None, output_dir='results/localization', save_path=None):
+    """
+    Plot and save confusion matrix for classification results.
+
+    Args:
+        predictions: numpy array of shape (samples,) - predicted class indices (0-indexed)
+        ground_truth: numpy array of shape (samples,) - ground truth class indices (0-indexed)
+        category_names: list of category names
+        checkpoint_path: path to the checkpoint file (used for naming, optional)
+        output_dir: directory to save the plot (used if checkpoint_path is provided)
+        save_path: direct path to save plot (optional, overrides output_dir)
+
+    Returns:
+        path to saved plot file
+    """
+    # Compute confusion matrix
+    cm = compute_confusion_matrix(ground_truth, predictions, len(category_names))
+
+    # Determine save path
+    if save_path:
+        plot_filepath = Path(save_path)
+    elif checkpoint_path:
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename
+        checkpoint_name = Path(checkpoint_path).stem
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        plot_filename = f'confusion_matrix_{checkpoint_name}_{timestamp}.png'
+        plot_filepath = output_path / plot_filename
+    else:
+        # Default save path
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        plot_filepath = output_path / f'confusion_matrix_{timestamp}.png'
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Plot confusion matrix as heatmap using imshow
+    im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Count', rotation=270, labelpad=20)
+
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(category_names)))
+    ax.set_yticks(np.arange(len(category_names)))
+    ax.set_xticklabels(category_names, rotation=45, ha='right')
+    ax.set_yticklabels(category_names, rotation=0)
+
+    # Add text annotations
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, format(cm[i, j], 'd'),
+                   ha="center", va="center",
+                   color="white" if cm[i, j] > thresh else "black",
+                   fontsize=10)
+
+    # Set title
+    if checkpoint_path:
+        checkpoint_name = Path(checkpoint_path).stem
+        ax.set_title(f'Confusion Matrix - {checkpoint_name}', fontsize=14, fontweight='bold', pad=20)
+    else:
+        ax.set_title('Confusion Matrix', fontsize=14, fontweight='bold', pad=20)
+
+    ax.set_xlabel('Predicted Category', fontsize=12)
+    ax.set_ylabel('True Category', fontsize=12)
+    plt.tight_layout()
+
+    # Save the figure
+    plt.savefig(plot_filepath, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # Print save information
+    print(f"\n{'=' * 80}")
+    print("CONFUSION MATRIX SAVED")
+    print("=" * 80)
+    print(f"File: {plot_filepath}")
+    print(f"Format: PNG image (150 DPI)")
+    print(f"Size: {cm.shape[0]}×{cm.shape[1]} confusion matrix")
+    print("=" * 80)
+
+    # Print accuracy per class
+    print("\nPer-Class Accuracy:")
+    print("-" * 80)
+    for i, cat in enumerate(category_names):
+        if cm[i].sum() > 0:
+            accuracy = cm[i, i] / cm[i].sum() * 100
+            print(f"  {cat:20s}: {accuracy:6.2f}% ({cm[i, i]:3d}/{cm[i].sum():3d})")
+    print("=" * 80)
+
+    return str(plot_filepath)
 
 
 if __name__ == '__main__':

@@ -44,10 +44,13 @@ class IndoorLocalizationDataset(Dataset):
             # Regression labels: (3, N) -> (N, 3)
             self.labels = labels.T  # Now shape (N, 3)
         elif task == 'classification':
-            # Classification labels: need to extract from structured array
-            # TODO: Parse classification labels from data structure
-            # For now, create placeholder
-            self.labels = np.zeros(self.features.shape[0], dtype=np.int64)
+            # Classification labels: (N, 1) or (N,) with values 1-7 (MATLAB indexing)
+            # Convert to 0-indexed for Python (0-6)
+            if labels.ndim == 2:
+                self.labels = labels.flatten() - 1  # Convert 1-7 to 0-6
+            else:
+                self.labels = labels - 1
+            self.labels = self.labels.astype(np.int64)
         else:
             raise ValueError(f"Unknown task: {task}")
 

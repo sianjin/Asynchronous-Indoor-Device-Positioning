@@ -27,17 +27,27 @@ print('✓ Model created successfully!')
 
 ## Train Your First Model
 
-### 1. Regression (3D Position Estimation)
+### 1. Choose Your Task
 
-Train a regression model for 3D position estimation:
+**Regression (3D Position Estimation):**
+
+Train a model to predict continuous (x, y, z) coordinates:
 
 ```bash
 python scripts/train.py --task regression --epochs 200 --batch_size 32
 ```
 
-This will:
+**Classification (Location Category Prediction):**
+
+Train a model to predict discrete location categories (conference_room, desk1-4, office, storage):
+
+```bash
+python scripts/train.py --task classification --epochs 150 --batch_size 32
+```
+
+Both commands will:
 - Load data from [data.mat](data.mat)
-- Train for 200 epochs
+- Train for the specified number of epochs
 - Save checkpoints to `./checkpoints/`
 - Save logs to `./logs/`
 
@@ -45,9 +55,14 @@ This will:
 
 Training logs are saved in real-time:
 
+**For Regression:**
 ```bash
-# View training log
 tail -f logs/regression_baseline_*.log
+```
+
+**For Classification:**
+```bash
+tail -f logs/classification_baseline_*.log
 ```
 
 ### 3. Evaluate Trained Model
@@ -63,6 +78,41 @@ python scripts/evaluate.py --checkpoint checkpoints/regression_baseline_best.pth
 ```bash
 python scripts/evaluate.py --checkpoint checkpoints/classification_baseline_best.pth
 ```
+
+This automatically generates and saves a **confusion matrix plot** to `results/localization/confusion_matrix_<checkpoint>_<timestamp>.png` showing per-class classification performance.
+
+**Save Regression Results to MATLAB (.mat file):**
+```bash
+python scripts/evaluate.py --checkpoint checkpoints/regression_baseline_best.pth --save_results
+```
+
+This saves positioning results (samples × 3) to `results/positioning/positioning_<checkpoint>_<timestamp>.mat` containing:
+- `predicted_positions`: (samples, 3) matrix of predicted [x, y, z] coordinates
+- `ground_truth_positions`: (samples, 3) matrix of true [x, y, z] coordinates
+
+Load in MATLAB with: `data = load('results/positioning/positioning_*.mat');`
+
+**Save Classification Results to MATLAB (.mat file):**
+```bash
+python scripts/evaluate.py --checkpoint checkpoints/classification_baseline_best.pth --save_results
+```
+
+This saves localization results to `results/localization/localization_<checkpoint>_<timestamp>.mat` containing:
+- `predicted_classes`: (samples, 1) matrix of predicted class indices (1-indexed: 1-7)
+- `ground_truth_classes`: (samples, 1) matrix of true class indices (1-indexed: 1-7)
+- `category_names`: cell array of all 7 category names
+
+Categories (1-indexed): 1=`conference_room`, 2=`desk1`, 3=`desk2`, 4=`desk3`, 5=`desk4`, 6=`office`, 7=`storage`
+
+Load in MATLAB and convert to categorical arrays:
+```matlab
+data = load('results/localization/localization_*.mat');
+predicted_cat = categorical(data.predicted_classes, 1:7, data.category_names);
+ground_truth_cat = categorical(data.ground_truth_classes, 1:7, data.category_names);
+% predicted_cat and ground_truth_cat are now samples×1 categorical arrays
+```
+
+**Note:** All results are organized under a main `results/` directory with `positioning/` and `localization/` subfolders.
 
 The script automatically detects the task type (regression or classification) from the checkpoint file and displays the appropriate metrics. See below for explanation of each metric.
 
