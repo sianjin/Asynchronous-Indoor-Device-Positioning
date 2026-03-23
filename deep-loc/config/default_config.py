@@ -24,10 +24,13 @@ class DefaultConfig:
     pos_max = [4.75, 7.75, 1.80]  # [x_max, y_max, z_max]
 
     # Model architecture - Encoder
-    embed_dim = 256
-    cnn_channels = [32, 64, 128]
-    mlp_hidden_dim = 256
-    encoder_dropout = 0.1
+    # Multi-token per-anchor architecture:
+    # - CNN output spatial size: (Nf, Mf) = (12, 8) after downsampling
+    # - Tokens per anchor: P = Nf × Mf = 96
+    # - Total tokens for transformer: Na × P = 4 × 96 = 384
+    # - Transformer sequence length: 384 (vs 4 in single-embedding architecture)
+    embed_dim = 256  # Token embedding dimension (d in paper)
+    cnn_channels = [32, 64, 128]  # CNN channel progression
 
     # Model architecture - Transformer
     num_heads = 4
@@ -39,7 +42,7 @@ class DefaultConfig:
     regression_hidden_dims = [128, 64]
     classification_hidden_dims = [128, 64]
     head_dropout = 0.1
-    num_classes = 100  # To be updated based on actual classification labels
+    num_classes = 7  # Number of location categories in dataset
 
     # Training parameters
     task = 'regression'  # 'regression' or 'classification'

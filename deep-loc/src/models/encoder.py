@@ -1,84 +1,67 @@
 """
-Hybrid CNN + MLP encoder for per-anchor feature extraction.
+CNN-based token encoder for multi-token per-anchor architecture.
+Matches paper Section III.1 design.
 """
 
 import torch
 import torch.nn as nn
 
 
-class HybridEncoder(nn.Module):
+class CNNTokenEncoder(nn.Module):
     """
-    Hybrid encoder combining CNN and MLP for per-anchor feature extraction.
+    CNN encoder that outputs multiple spatial tokens per anchor.
 
     Architecture:
-    - CNN branch: Extracts local spatial-temporal patterns via 2D convolutions
-    - MLP branch: Captures global statistics via fully connected layers
-    - Fusion: Concatenates features and projects to embedding dimension
+    - 3-layer CNN with stride-2 downsampling
+    - No global pooling - preserves spatial structure
+    - Token projection to embedding dimension
 
     Input: (batch, Ntap, 2M) = (batch, 48, 32)
-    Output: (batch, embed_dim)
+    Output: (batch, P, d) where P = Nf × Mf, d = embed_dim
     """
 
-    def __init__(self, input_shape=(48, 32), embed_dim=256, cnn_channels=[32, 64, 128],
-                 mlp_hidden_dim=256, dropout=0.1):
+    def __init__(self, input_shape=(48, 32), embed_dim=256,
+                 cnn_channels=[32, 64, 128]):
         """
-        Initialize hybrid encoder.
+        Initialize CNN token encoder.
 
         Args:
-            input_shape: (Ntap, 2M) - input feature map shape
-            embed_dim: output embedding dimension
-            cnn_channels: list of channel dimensions for CNN layers
-            mlp_hidden_dim: hidden dimension for MLP branch
-            dropout: dropout probability
+            input_shape: (Ntap, 2M) input dimensions
+            embed_dim: output token embedding dimension
+            cnn_channels: channel progression for CNN layers
         """
         super().__init__()
 
         self.input_shape = input_shape
         self.embed_dim = embed_dim
-        ntap, channels_2m = input_shape
 
-        # CNN Branch
-        # Process as 2D feature map: (Ntap, 2M)
+        # Build CNN layers
         cnn_layers = []
 
-        # First conv block
+        # First conv: no downsampling
         cnn_layers.extend([
             nn.Conv2d(1, cnn_channels[0], kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(cnn_channels[0]),
             nn.ReLU(inplace=True)
         ])
 
-        # Additional conv blocks with downsampling
+        # Subsequent convs: stride-2 downsampling
         for i in range(len(cnn_channels) - 1):
             cnn_layers.extend([
-                nn.Conv2d(cnn_channels[i], cnn_channels[i+1], kernel_size=3,
-                         stride=2, padding=1),
+                nn.Conv2d(cnn_channels[i], cnn_channels[i+1],
+                         kernel_size=3, stride=2, padding=1),
                 nn.BatchNorm2d(cnn_channels[i+1]),
                 nn.ReLU(inplace=True)
             ])
 
-        # Global average pooling
-        cnn_layers.append(nn.AdaptiveAvgPool2d((1, 1)))
+        self.cnn = nn.Sequential(*cnn_layers)
 
-        self.cnn_branch = nn.Sequential(*cnn_layers)
-        cnn_output_dim = cnn_channels[-1]
+        # Token projection: Cf → d
+        self.token_proj = nn.Linear(cnn_channels[-1], embed_dim)
 
-        # MLP Branch
-        mlp_input_dim = ntap * channels_2m
-        self.mlp_branch = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(mlp_input_dim, mlp_hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout)
-        )
-
-        # Fusion layer
-        fusion_input_dim = cnn_output_dim + mlp_hidden_dim
-        self.fusion = nn.Sequential(
-            nn.Linear(fusion_input_dim, embed_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout)
-        )
+        # Calculate output spatial dimensions
+        # After 2 stride-2 convolutions: (48, 32) → (24, 16) → (12, 8)
+        self.tokens_per_anchor = 12 * 8  # 96 tokens
 
     def forward(self, x):
         """
@@ -88,34 +71,35 @@ class HybridEncoder(nn.Module):
             x: (batch, Ntap, 2M) tensor
 
         Returns:
-            (batch, embed_dim) tensor
+            (batch, P, d) tensor of token embeddings
         """
         batch_size = x.shape[0]
 
-        # CNN branch: Add channel dimension for Conv2D
-        x_cnn = x.unsqueeze(1)  # (batch, 1, Ntap, 2M)
-        cnn_feat = self.cnn_branch(x_cnn)  # (batch, cnn_channels[-1], 1, 1)
-        cnn_feat = cnn_feat.view(batch_size, -1)  # (batch, cnn_channels[-1])
+        # Add channel dimension for Conv2d
+        x = x.unsqueeze(1)  # (batch, 1, Ntap, 2M)
 
-        # MLP branch
-        mlp_feat = self.mlp_branch(x)  # (batch, mlp_hidden_dim)
+        # Extract spatial features via CNN
+        features = self.cnn(x)  # (batch, Cf, Nf, Mf)
 
-        # Concatenate features
-        combined_feat = torch.cat([cnn_feat, mlp_feat], dim=1)  # (batch, fusion_input_dim)
+        # Reshape to tokens: (batch, P, Cf) where P = Nf × Mf
+        # features.flatten(2): (batch, Cf, Nf*Mf)
+        # .transpose(1, 2): (batch, Nf*Mf, Cf)
+        tokens = features.flatten(2).transpose(1, 2)  # (batch, P, Cf)
 
-        # Fusion to embedding
-        embedding = self.fusion(combined_feat)  # (batch, embed_dim)
+        # Project to embedding dimension
+        token_embeddings = self.token_proj(tokens)  # (batch, P, d)
 
-        return embedding
+        return token_embeddings
 
 
 if __name__ == '__main__':
     # Test the encoder
-    encoder = HybridEncoder(input_shape=(48, 32), embed_dim=256)
+    encoder = CNNTokenEncoder(input_shape=(48, 32), embed_dim=256)
     x = torch.randn(8, 48, 32)  # batch_size=8
     out = encoder(x)
     print(f"Input shape: {x.shape}")
     print(f"Output shape: {out.shape}")
-    print(f"Expected output shape: (8, 256)")
-    assert out.shape == (8, 256), "Output shape mismatch!"
-    print("Encoder test passed!")
+    print(f"Expected: (8, 96, 256)")
+    print(f"Tokens per anchor: {encoder.tokens_per_anchor}")
+    assert out.shape == (8, 96, 256), "Output shape mismatch!"
+    print("✓ CNNTokenEncoder test passed!")

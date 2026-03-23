@@ -6,20 +6,21 @@ Integrates encoder, transformer, and task-specific heads.
 import torch
 import torch.nn as nn
 
-from src.models.encoder import HybridEncoder
+from src.models.encoder import CNNTokenEncoder
 from src.models.transformer import CrossAnchorTransformer
 from src.models.heads import RegressionHead, ClassificationHead
 
 
 class IndoorLocalizationModel(nn.Module):
     """
-    Complete indoor localization model.
+    Complete indoor localization model with multi-token per-anchor architecture.
 
     Architecture:
-    1. Shared per-anchor encoder (Hybrid CNN + MLP)
-    2. Cross-anchor transformer fusion
-    3. Global aggregation (mean pooling)
-    4. Task-specific head (regression or classification)
+    1. Shared per-anchor CNN encoder → multi-token representation (P tokens per anchor)
+    2. Token concatenation across anchors (Na × P tokens)
+    3. Cross-anchor-token transformer fusion
+    4. Global aggregation (mean pooling over all tokens)
+    5. Task-specific head (regression or classification)
 
     Input: (batch, Na, Ntap, 2M)
     Output: (batch, 3) for regression or (batch, num_classes) for classification
@@ -37,13 +38,11 @@ class IndoorLocalizationModel(nn.Module):
         self.task = config.task
         self.num_anchors = config.num_anchors
 
-        # Shared per-anchor encoder
-        self.encoder = HybridEncoder(
+        # Shared per-anchor CNN encoder (outputs multiple tokens)
+        self.encoder = CNNTokenEncoder(
             input_shape=config.input_shape,
             embed_dim=config.embed_dim,
-            cnn_channels=config.cnn_channels,
-            mlp_hidden_dim=config.mlp_hidden_dim,
-            dropout=config.encoder_dropout
+            cnn_channels=config.cnn_channels
         )
 
         # Cross-anchor transformer
@@ -71,7 +70,7 @@ class IndoorLocalizationModel(nn.Module):
 
     def forward(self, anchor_features):
         """
-        Forward pass.
+        Forward pass with multi-token per-anchor architecture.
 
         Args:
             anchor_features: (batch, Na, Ntap, 2M) tensor
@@ -81,23 +80,28 @@ class IndoorLocalizationModel(nn.Module):
         """
         batch_size, Na, Ntap, channels_2M = anchor_features.shape
 
-        # Step 1: Encode each anchor independently using shared encoder
+        # Step 1: Encode each anchor to multi-token representation
         # Reshape to (batch*Na, Ntap, 2M) to process all anchors in parallel
         flat_features = anchor_features.reshape(batch_size * Na, Ntap, channels_2M)
 
-        # Apply encoder
-        embeddings = self.encoder(flat_features)  # (batch*Na, embed_dim)
+        # Apply encoder to get tokens
+        token_embeddings = self.encoder(flat_features)  # (batch*Na, P, d)
 
-        # Step 2: Reshape back to (batch, Na, embed_dim)
-        anchor_embeddings = embeddings.reshape(batch_size, Na, -1)
+        # Step 2: Reshape to (batch, Na, P, d)
+        P = token_embeddings.shape[1]  # tokens per anchor
+        d = token_embeddings.shape[2]  # embedding dimension
+        anchor_tokens = token_embeddings.reshape(batch_size, Na, P, d)
 
-        # Step 3: Cross-anchor fusion via transformer
-        fused_embeddings = self.transformer(anchor_embeddings)  # (batch, Na, embed_dim)
+        # Step 3: Concatenate all anchor tokens → (batch, Na*P, d)
+        all_tokens = anchor_tokens.reshape(batch_size, Na * P, d)
 
-        # Step 4: Global aggregation via mean pooling (permutation-invariant)
-        global_feature = fused_embeddings.mean(dim=1)  # (batch, embed_dim)
+        # Step 4: Token-level cross-anchor fusion via transformer
+        fused_tokens = self.transformer(all_tokens)  # (batch, Na*P, d)
 
-        # Step 5: Task-specific head
+        # Step 5: Global aggregation via mean pooling over all tokens
+        global_feature = fused_tokens.mean(dim=1)  # (batch, d)
+
+        # Step 6: Task-specific head
         if self.task == 'regression':
             output = self.regression_head(global_feature)  # (batch, 3)
         elif self.task == 'classification':
