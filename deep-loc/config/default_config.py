@@ -23,13 +23,13 @@ class DefaultConfig:
     pos_min = [0.25, 0.25, 0.80]  # [x_min, y_min, z_min]
     pos_max = [4.75, 7.75, 1.80]  # [x_max, y_max, z_max]
 
-    # Model architecture - Encoder (Deep CNN - conservative upgrade)
-    # 4-layer CNN with 256 filters each, using stride-based downsampling
-    # Conservative upgrade from baseline: same architecture, just deeper/wider
+    # Model architecture - Encoder (Moderate upgrade: 2× wider than baseline)
+    # 3-layer CNN with gradual channel increase, same depth as baseline
+    # Avoids overfitting: 436K params vs 1.84M (previous failed attempt)
     embed_dim = 256
-    cnn_channels = [256, 256, 256, 256]  # 4 layers, all 256 filters
+    cnn_channels = [64, 128, 256]  # 3 layers, 2× wider than baseline [32,64,128]
     # mlp_hidden_dim = 256  # Removed: no longer using MLP branch
-    encoder_dropout = 0.2  # Increased from 0.1 to match MATLAB
+    encoder_dropout = 0.15  # Moderate increase from baseline 0.1
 
     # Model architecture - Transformer
     num_heads = 4
