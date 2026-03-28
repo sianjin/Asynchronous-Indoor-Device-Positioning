@@ -24,42 +24,44 @@ class CNNEncoder(nn.Module):
     """
 
     def __init__(self, input_shape=(48, 32), embed_dim=256,
-                 cnn_channels=[32, 64, 128], dropout=0.1):
+                 cnn_channels=[256, 256, 256, 256], dropout=0.2):
         """
         Initialize CNN encoder.
 
         Args:
             input_shape: (Ntap, 2M) - input feature map shape
             embed_dim: output embedding dimension
-            cnn_channels: list of channel dimensions for CNN layers
-            dropout: dropout probability
+            cnn_channels: list of channel dimensions for CNN layers (default: 4 layers of 256)
+            dropout: dropout probability (default: 0.2 to match MATLAB)
         """
         super().__init__()
 
         self.input_shape = input_shape
         self.embed_dim = embed_dim
 
-        # CNN feature extraction (Equation 2 in paper)
+        # CNN feature extraction matching MATLAB architecture
+        # Each block: Conv3x3 → BN → ReLU → AvgPool2x2
         cnn_layers = []
 
-        # First conv block (no downsampling)
-        cnn_layers.extend([
-            nn.Conv2d(1, cnn_channels[0], kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(cnn_channels[0]),
-            nn.ReLU(inplace=True)
-        ])
+        in_channels = 1  # Input has 1 channel (real+imag stacked as 2M dimension)
 
-        # Additional conv blocks with stride-2 downsampling
-        for i in range(len(cnn_channels) - 1):
+        for out_channels in cnn_channels:
+            # Convolution block
             cnn_layers.extend([
-                nn.Conv2d(cnn_channels[i], cnn_channels[i+1], kernel_size=3,
-                         stride=2, padding=1),
-                nn.BatchNorm2d(cnn_channels[i+1]),
-                nn.ReLU(inplace=True)
+                nn.Conv2d(in_channels, out_channels, kernel_size=3,
+                         stride=1, padding='same'),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True),
+                # Average pooling after each conv (matches MATLAB)
+                nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
             ])
+            in_channels = out_channels
+
+        # Dropout layer (matches MATLAB 0.2 dropout)
+        cnn_layers.append(nn.Dropout2d(dropout))
 
         # Global average pooling (Equation 3 in paper)
-        # Aggregates spatial dimensions: (batch, Cf, Nf, Mf) → (batch, Cf, 1, 1)
+        # Final aggregation: (batch, Cf, H, W) → (batch, Cf, 1, 1)
         cnn_layers.append(nn.AdaptiveAvgPool2d((1, 1)))
 
         self.cnn = nn.Sequential(*cnn_layers)
