@@ -24,7 +24,7 @@ class CNNEncoder(nn.Module):
     """
 
     def __init__(self, input_shape=(48, 32), embed_dim=256,
-                 cnn_channels=[256, 256, 256, 256], dropout=0.2):
+                 cnn_channels=[64, 128, 256], dropout=0.15):
         """
         Initialize CNN encoder.
 
