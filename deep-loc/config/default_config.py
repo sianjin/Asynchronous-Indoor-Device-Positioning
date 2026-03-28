@@ -23,9 +23,9 @@ class DefaultConfig:
     pos_min = [0.25, 0.25, 0.80]  # [x_min, y_min, z_min]
     pos_max = [4.75, 7.75, 1.80]  # [x_max, y_max, z_max]
 
-    # Model architecture - Encoder (Deep CNN matching high-performing MATLAB architecture)
-    # 4-layer CNN with 256 filters each + average pooling after each conv
-    # This architecture achieves 99% accuracy in MATLAB experiments vs 96.5% with shallow CNN
+    # Model architecture - Encoder (Deep CNN - conservative upgrade)
+    # 4-layer CNN with 256 filters each, using stride-based downsampling
+    # Conservative upgrade from baseline: same architecture, just deeper/wider
     embed_dim = 256
     cnn_channels = [256, 256, 256, 256]  # 4 layers, all 256 filters
     # mlp_hidden_dim = 256  # Removed: no longer using MLP branch
