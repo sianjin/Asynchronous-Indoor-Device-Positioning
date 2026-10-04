@@ -53,7 +53,7 @@ def main():
     args = parse_args()
     fig, ax = plt.subplots(figsize=(9.6, 3.6))
     ax.set_xlim(0, 160)
-    ax.set_ylim(-4, 46)
+    ax.set_ylim(-5, 46)
     ax.axis('off')
 
     # Rows of the per-AP pipeline: AP 1, an undetected AP, AP Na
@@ -64,7 +64,7 @@ def main():
     stage_title(ax, 0, 27, 'Asynchronous APs')
     ax.add_patch(Rectangle((2, 5), 23, 34, facecolor='white', edgecolor=MUTED, linewidth=0.9))
     ax.plot([8, 8], [5, 24], color=MUTED, linewidth=1.2)  # partition
-    device = (17, 19)
+    device = (14, 19)
     aps = [((3.6, 37.2), True), ((23.4, 37.2), True), ((3.6, 6.8), False), ((23.4, 6.8), True)]
     for (x, y), detected in aps:
         color = INK if detected else MUTED
@@ -74,17 +74,17 @@ def main():
                              facecolor=ORANGE if detected else GRAY_FILL, edgecolor=color, linewidth=0.7,
                              zorder=3))
     ax.add_patch(Circle(device, 1.2, facecolor=BLUE, edgecolor=INK, linewidth=0.7, zorder=3))
-    ax.text(18.8, 19.2, r'device $\mathbf{x}$', ha='left', va='center', fontsize=6.5)
-    ax.text(13.5, 34.3, r'AP positions $\mathbf{p}_\ell$ known', ha='center', va='center', fontsize=6.2)
-    ax.text(15.5, 8.6, 'blocked AP:\nnot detected', ha='center', va='center', fontsize=6.5, color=MUTED,
+    ax.text(16, 19, r'device $\mathbf{x}$', ha='left', va='center', fontsize=6.5)
+    ax.text(14.3, 8.6, 'blocked AP:\nnot detected', ha='center', va='center', fontsize=6, color=MUTED,
             linespacing=1.1)
-    ax.text(13.5, 0.6, r'independent clocks: SCO/CFO $\epsilon_\ell$,' '\n'
+    ax.text(13.5, -0.2, r'known AP positions $\mathbf{p}_\ell$' '\n'
+            r'independent clocks: SCO/CFO $\epsilon_\ell$,' '\n'
             r'phase noise $\theta_\ell[n]$, unknown delay $\tau_\ell$',
             ha='center', va='center', fontsize=6.5, linespacing=1.2)
 
     # ---- Stage 2: per-packet receiver processing
     stage_title(ax, 30, 20, 'Per-packet receiver')
-    box(ax, 30, 6.5, 20, 33, 'Packet detection\nCFO correction\nSymbol timing\nChannel estimation\n'
+    box(ax, 30, 6.5, 20, 33, 'Packet detection\nCFO correction\nSymbol timing\nChannel\nestimation\n'
         r'$\mathbf{H}_\ell[k]$' '\n\nIFFT\n' r'$\rightarrow$ CIR $\widehat{\mathbf{H}}_\ell[\tau]$',
         'white', MUTED, fontsize=7)
     arrow(ax, (25.5, 22.5), (30, 22.5))
@@ -118,8 +118,10 @@ def main():
             dashed=not detected, color=text_color)
         arrow(ax, (94, y - 2), (94, mid - 1.4), color=ORANGE if detected else MUTED, dashed=not detected)
         arrow(ax, (95.4, mid), (108, mid), color=edge, dashed=not detected)
-        ax.text(101.8, mid + 1.6, rf'$\mathbf{{e}}_{{{index}}}$' + ('' if detected else ' masked'),
-                ha='center', va='center', fontsize=7, color=text_color)
+        ax.text(101.8, mid + 1.6, rf'$\mathbf{{e}}_{{{index}}}$', ha='center', va='center', fontsize=7,
+                color=text_color)
+        if not detected:
+            ax.text(101.8, mid - 1.7, 'masked', ha='center', va='center', fontsize=6.5, color=text_color)
     ax.text(78, 17, 'shared weights', ha='center', va='center', fontsize=6.5, color=BLUE)
     ax.text(59.5, 3.9, r'$N_{\mathrm{tap}} \times 2M$', ha='center', va='center', fontsize=6.5)
 
@@ -138,6 +140,11 @@ def main():
             va='center', fontsize=6.5, linespacing=1.15)
     ax.text(146.2, 10.5, 'variable number\nof available APs', ha='center', va='center', fontsize=6.5,
             linespacing=1.15)
+
+    # The figure is drawn 9.6 in wide and printed at the 7.16 in text width,
+    # so the text is enlarged to stay readable after scaling
+    for text in ax.texts:
+        text.set_fontsize(text.get_fontsize() * 1.2)
 
     fig.savefig(args.output + '.pdf')
     fig.savefig(args.output + '.png', dpi=300)
