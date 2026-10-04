@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument('--anchor_dropout', type=float, default=None)
     parser.add_argument('--use_anchor_position', action='store_true')
 
-    # Receiver reference (complex input only)
+    # Receiver reference (applied to the complex CIR, before the magnitude is taken)
     parser.add_argument('--random_phase', action='store_true',
                        help='Rotate the CIR of every AP by a uniformly random common phase')
     parser.add_argument('--random_delay', action='store_true',
@@ -174,6 +174,12 @@ def randomize_reference(X, random_phase, random_delay, generator=None):
     return torch.cat([H.real, H.imag], dim=-1)
 
 
+def to_magnitude(X):
+    """Magnitude of a (..., 2M) tensor with real and imaginary parts stacked."""
+    M = X.shape[-1] // 2
+    return torch.sqrt(X[..., :M] ** 2 + X[..., M:] ** 2)
+
+
 def build_model(args, config):
     """Build the model for this experiment."""
     if args.model == 'cnn':
@@ -201,7 +207,8 @@ def distance_error(pred_norm, target, pos_min, pos_max):
     return torch.sqrt(((pred - target) ** 2).sum(dim=-1))
 
 
-def train(model, split, config, pos_min, pos_max, random_phase=False, random_delay=False):
+def train(model, split, config, pos_min, pos_max, random_phase=False, random_delay=False,
+          magnitude=False):
     """Train with warmup + cosine schedule and early stopping on the validation error."""
     X_train, Y_train = split['train']
     X_val, Y_val = split['val']
@@ -227,6 +234,8 @@ def train(model, split, config, pos_min, pos_max, random_phase=False, random_del
             optimizer.zero_grad()
             # A new phase and timing reference is drawn every time a sample is used
             batch = randomize_reference(X_train[idx], random_phase, random_delay)
+            if magnitude:
+                batch = to_magnitude(batch)
             loss = criterion(model(batch), target_train[idx])
             loss.backward()
             optimizer.step()
@@ -319,7 +328,12 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    split, extra = load_split(args.data_dir, args.train_condition, args.seed, args.input)
+    # With a random receiver reference the data are kept complex: the reference
+    # is applied first and the magnitude, if requested, is taken afterwards
+    randomized = args.random_phase or args.random_delay
+    magnitude_after = randomized and args.input == 'magnitude'
+    split, extra = load_split(args.data_dir, args.train_condition, args.seed,
+                              'complex' if randomized else args.input)
     if args.smoke:
         # Keep a few samples of every set and train for one epoch
         num_smoke = 128
@@ -339,17 +353,22 @@ def main():
     extra['conditions'] = {name: (X.to(device), Y.to(device))
                            for name, (X, Y) in extra['conditions'].items()}
 
-    if args.random_phase or args.random_delay:
-        if args.input != 'complex':
-            raise ValueError("--random_phase and --random_delay require complex input")
-        # Validation and test sets get one fixed random reference per AP and sample
+    if randomized:
+        # Validation and test sets get one fixed random reference per AP and sample.
+        # The training set gets a new one every time a sample is used (see train),
+        # except for kNN, which has no training loop
         generator = torch.Generator(device=device).manual_seed(12345)
-        randomize = lambda X: randomize_reference(X, args.random_phase, args.random_delay, generator)
-        split = {name: (X if name == 'train' else randomize(X), Y) for name, (X, Y) in split.items()}
-        extra['conditions'] = {name: (split['test'][0] if name == args.train_condition else randomize(X), Y)
+
+        def prepare(X):
+            X = randomize_reference(X, args.random_phase, args.random_delay, generator)
+            return to_magnitude(X) if magnitude_after else X
+
+        fixed_sets = ['val', 'test'] + (['train'] if args.model == 'knn' else [])
+        split = {name: (prepare(X) if name in fixed_sets else X, Y) for name, (X, Y) in split.items()}
+        extra['conditions'] = {name: (split['test'][0] if name == args.train_condition else prepare(X), Y)
                                for name, (X, Y) in extra['conditions'].items()}
 
-    config.input_shape = tuple(split['train'][0].shape[2:])
+    config.input_shape = tuple(split['val'][0].shape[2:])
     pos_min = torch.tensor(config.pos_min, device=device)
     pos_max = torch.tensor(config.pos_max, device=device)
     print(f"{args.name}: train {len(split['train'][0])}, val {len(split['val'][0])}, "
@@ -372,7 +391,7 @@ def main():
             # The unused classification head is not part of the regression model
             result['num_params'] -= sum(p.numel() for p in model.classification_head.parameters())
         val_error, best_epoch = train(model, split, config, pos_min, pos_max,
-                                      args.random_phase, args.random_delay)
+                                      args.random_phase, args.random_delay, magnitude_after)
         pred_norm = predict(model, X_test)
         pred = pred_norm * (pos_max - pos_min) + pos_min
         errors = distance_error(pred_norm, Y_test, pos_min, pos_max)

@@ -90,6 +90,9 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=None, help='Learning rate (default: 1e-3)')
     parser.add_argument('--only', type=str, nargs='+', default=None,
                        help='Run only the experiments with these names (or the group "reference")')
+    parser.add_argument('--random_reference', action='store_true',
+                       help='Train and test every experiment with a random common phase and a random '
+                            'sub-sample delay per AP')
     parser.add_argument('--redo_early_stopped', action='store_true',
                        help='Repeat the finished experiments that stopped before the last epoch')
     parser.add_argument('--results_name', type=str, default='camera_ready',
@@ -185,6 +188,9 @@ def main():
         if unknown:
             sys.exit(f"Unknown experiments: {sorted(unknown)}")
         EXPERIMENTS[:] = [e for e in EXPERIMENTS if e[0] in args.only]
+    if args.random_reference:
+        # The random reference applies to every experiment, so the dedicated ones are redundant
+        EXPERIMENTS[:] = [e for e in EXPERIMENTS if 'randphase' not in e[0]]
     smoke = args.mode == 'smoke'
     output_dir = os.path.join(ROOT, 'results', 'smoke_test' if smoke else args.results_name)
     seeds = [0] if smoke else args.seeds
@@ -208,6 +214,8 @@ def main():
                    '--device', device]
     if args.lr is not None:
         common_args += ['--lr', str(args.lr)]
+    if args.random_reference:
+        common_args += ['--random_phase', '--random_delay']
     if smoke:
         common_args.append('--smoke')
 
