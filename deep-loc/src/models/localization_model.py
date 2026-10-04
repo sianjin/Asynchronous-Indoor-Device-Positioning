@@ -239,8 +239,8 @@ if __name__ == '__main__':
     out = cls_model(x)
     print(f"  Input shape: {x.shape}")
     print(f"  Output shape: {out.shape}")
-    print(f"  Expected: (8, 100)")
-    assert out.shape == (8, 100), "Classification model output shape mismatch!"
+    print(f"  Expected: (8, {cls_config.num_classes})")
+    assert out.shape == (8, cls_config.num_classes), "Classification model output shape mismatch!"
     print("  Test passed!")
 
     # Test prediction mode

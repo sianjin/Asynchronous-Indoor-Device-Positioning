@@ -11,7 +11,6 @@ class RegressionConfig(DefaultConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.task = 'regression'
-        self.experiment_name = 'regression_baseline'
 
 
 class ClassificationConfig(DefaultConfig):
@@ -20,9 +19,6 @@ class ClassificationConfig(DefaultConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.task = 'classification'
-        self.experiment_name = 'classification_baseline'
-        # Classification-specific parameters can be set here
-        # self.num_classes will need to be determined from data
 
 
 def get_config(task='regression', **kwargs):
