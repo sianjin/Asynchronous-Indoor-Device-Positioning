@@ -41,8 +41,8 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Make the figures and the table of the paper')
     parser.add_argument('--results_dirs', type=str, nargs='+',
-                       default=[os.path.join(ROOT, 'results', 'camera_ready_200ep'),
-                                os.path.join(ROOT, 'results', 'camera_ready_200ep_lr3e-4')],
+                       default=[os.path.join(ROOT, 'results', 'camera_ready_200ep_randref'),
+                                os.path.join(ROOT, 'results', 'camera_ready_200ep_randref_lr3e-4')],
                        help='Result folders; the best one on the validation set is used per experiment')
     parser.add_argument('--output_dir', type=str,
                        default=os.path.join(os.path.dirname(ROOT), 'paper', 'figures'),

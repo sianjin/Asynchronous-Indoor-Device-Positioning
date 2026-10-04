@@ -48,12 +48,14 @@ python3 scripts/run_all.py status    # progress of a run
 
 The script finds the data in `deep-loc` or `phy`, uses a GPU if one is available, runs several experiments in parallel and skips experiments that are already finished.
 
-The results in the paper use 200 epochs without early stopping, five seeds and two learning rates:
+The results in the paper use 200 epochs without early stopping, five seeds, two learning rates and a random receiver reference:
 
 ```bash
-python3 scripts/run_all.py --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name camera_ready_200ep
-python3 scripts/run_all.py --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name camera_ready_200ep_lr3e-4 --lr 3e-4
+python3 scripts/run_all.py --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name camera_ready_200ep_randref --random_reference
+python3 scripts/run_all.py --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name camera_ready_200ep_randref_lr3e-4 --lr 3e-4 --random_reference
 ```
+
+In the simulated channel estimates the first path lies on the receiver sampling grid and the carrier phase offset is zero at the packet start. `--random_reference` removes both idealizations: the CIR of every AP is delayed by a random fraction of a sample and rotated by a random common phase, with a new draw every time a training sample is used and one fixed draw for the validation and test samples.
 
 Every model is trained on the training positions, the checkpoint with the lowest validation error is kept (15% of the training positions are held out for validation), and it is evaluated on the test positions. For every experiment, the learning rate with the lower validation error is reported.
 
@@ -80,7 +82,7 @@ Every trained model is also evaluated with only a subset of the APs available, p
 ## 3. Summaries, figures and complexity
 
 ```bash
-python3 scripts/summarize_results.py --results_dir results/camera_ready_200ep results/camera_ready_200ep_lr3e-4
+python3 scripts/summarize_results.py --results_dir results/camera_ready_200ep_randref results/camera_ready_200ep_randref_lr3e-4
 python3 scripts/make_figures.py --output_dir figures --table_path figures/results_table.tex
 python3 scripts/measure_complexity.py
 ```
@@ -89,19 +91,19 @@ python3 scripts/measure_complexity.py
 
 ## Results
 
-Distance error on the test positions, mean ± standard deviation over five seeds:
+Distance error on the test positions, mean ± standard deviation over five seeds. Every model is trained and tested with a random sub-sample delay and a random common phase per AP (`--random_reference`):
 
 | Model | Parameters | Mean (m) | Median (m) | 90th percentile (m) |
 |---|---|---|---|---|
-| Proposed | 1.60 M | 0.18 ± 0.01 | 0.12 | 0.32 |
-| Fixed-order fusion | 0.58 M | 0.22 ± 0.00 | 0.14 | 0.43 |
-| Proposed without AP position | 1.53 M | 0.32 ± 0.02 | 0.16 | 0.51 |
-| Early-fusion ResNet | 2.80 M | 0.38 ± 0.00 | 0.26 | 0.74 |
-| Set pooling (no Transformer) | 0.54 M | 0.40 ± 0.02 | 0.25 | 0.77 |
-| Early-fusion CNN | 1.79 M | 0.44 ± 0.01 | 0.32 | 0.93 |
-| Proposed, magnitude-only input | 1.60 M | 0.46 ± 0.01 | 0.33 | 0.90 |
-| Early-fusion CNN, magnitude-only input | 1.78 M | 1.02 ± 0.01 | 0.81 | 1.95 |
-| kNN fingerprinting | – | 1.63 ± 0.05 | 1.18 | 3.77 |
+| Proposed | 1.60 M | 0.17 ± 0.01 | 0.11 | 0.30 |
+| Fixed-order fusion | 0.58 M | 0.20 ± 0.00 | 0.14 | 0.40 |
+| Early-fusion ResNet | 2.80 M | 0.20 ± 0.02 | 0.13 | 0.36 |
+| Proposed without AP position | 1.53 M | 0.31 ± 0.02 | 0.16 | 0.51 |
+| Early-fusion CNN | 1.79 M | 0.32 ± 0.00 | 0.22 | 0.65 |
+| Set pooling (no Transformer) | 0.54 M | 0.36 ± 0.01 | 0.24 | 0.68 |
+| Proposed, magnitude-only input | 1.60 M | 0.47 ± 0.01 | 0.34 | 0.93 |
+| Early-fusion CNN, magnitude-only input | 1.78 M | 1.00 ± 0.01 | 0.81 | 1.90 |
+| kNN fingerprinting | – | 1.94 ± 0.06 | 1.64 | 3.87 |
 
 ## Limitations
 
