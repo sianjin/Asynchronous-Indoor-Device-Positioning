@@ -46,27 +46,35 @@ class CrossAnchorTransformer(nn.Module):
         )
 
         # Stack multiple layers
+        # Nested-tensor fast path is disabled: with a key padding mask it
+        # truncates the output to the longest unmasked sequence in the batch
         self.transformer_encoder = nn.TransformerEncoder(
             encoder_layer,
-            num_layers=num_layers
-        )
+            num_layers=num_layers,
+            enable_nested_tensor=False
+        ) if num_layers > 0 else None
 
         # No positional encoding - we want permutation invariance
 
-    def forward(self, x, mask=None):
+    def forward(self, x, key_padding_mask=None):
         """
         Forward pass.
 
         Args:
             x: (batch, Na, embed_dim) tensor of anchor embeddings
-            mask: optional attention mask
+            key_padding_mask: optional (batch, Na) bool tensor, True for
+                missing anchors that must not be attended to
 
         Returns:
             (batch, Na, embed_dim) tensor of fused embeddings
         """
+        # num_layers = 0 disables cross-anchor fusion (DeepSets-style baseline)
+        if self.transformer_encoder is None:
+            return x
+
         # Apply transformer encoder
         # Note: No positional encoding is added to maintain permutation invariance
-        out = self.transformer_encoder(x, mask=mask)
+        out = self.transformer_encoder(x, src_key_padding_mask=key_padding_mask)
 
         return out
 

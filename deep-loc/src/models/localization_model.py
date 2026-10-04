@@ -17,8 +17,8 @@ class IndoorLocalizationModel(nn.Module):
 
     Architecture:
     1. Shared per-anchor encoder (Pure CNN with global pooling)
-    2. Cross-anchor transformer fusion
-    3. Global aggregation (mean pooling)
+    2. Cross-anchor transformer fusion (missing anchors are masked)
+    3. Global aggregation (masked mean pooling or attention pooling)
     4. Task-specific head (regression or classification)
 
     Input: (batch, Na, Ntap, 2M)
@@ -36,6 +36,10 @@ class IndoorLocalizationModel(nn.Module):
 
         self.task = config.task
         self.num_anchors = config.num_anchors
+        self.mask_missing_anchors = getattr(config, 'mask_missing_anchors', True)
+        self.anchor_dropout = getattr(config, 'anchor_dropout', 0.0)
+        self.pooling = getattr(config, 'pooling', 'mean')
+        self.use_anchor_position = getattr(config, 'use_anchor_position', False)
 
         # Shared per-anchor encoder
         self.encoder = CNNEncoder(
@@ -45,6 +49,20 @@ class IndoorLocalizationModel(nn.Module):
             dropout=config.encoder_dropout
         )
 
+        # Optional embedding of the AP coordinates, added to each anchor token.
+        # The input stays a set of (CIR, AP position) pairs, so the model
+        # remains permutation invariant
+        if self.use_anchor_position:
+            pos_min = torch.tensor(config.pos_min, dtype=torch.float32)
+            pos_max = torch.tensor(config.pos_max, dtype=torch.float32)
+            anchor_pos = torch.tensor(config.anchor_positions, dtype=torch.float32)
+            self.register_buffer('anchor_pos', (anchor_pos - pos_min) / (pos_max - pos_min))
+            self.anchor_pos_embed = nn.Sequential(
+                nn.Linear(3, config.embed_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(config.embed_dim, config.embed_dim)
+            )
+
         # Cross-anchor transformer
         self.transformer = CrossAnchorTransformer(
             embed_dim=config.embed_dim,
@@ -53,6 +71,12 @@ class IndoorLocalizationModel(nn.Module):
             ff_dim=config.ff_dim,
             dropout=config.transformer_dropout
         )
+
+        # Attention pooling: learned scalar score per anchor
+        if self.pooling == 'attention':
+            self.pool_score = nn.Linear(config.embed_dim, 1)
+        elif self.pooling != 'mean':
+            raise ValueError(f"Unknown pooling: {self.pooling}")
 
         # Task-specific heads
         self.regression_head = RegressionHead(
@@ -68,17 +92,48 @@ class IndoorLocalizationModel(nn.Module):
             dropout=config.head_dropout
         )
 
-    def forward(self, anchor_features):
+    def _anchor_mask(self, anchor_features, anchor_mask):
+        """
+        Build the (batch, Na) mask of missing anchors (True = missing).
+
+        An anchor is missing if its observation is all-zero (no packet was
+        detected), if the caller marks it in anchor_mask, or if it is dropped
+        by anchor dropout during training. At least one anchor is always kept.
+        """
+        batch_size, Na = anchor_features.shape[:2]
+        if self.mask_missing_anchors:
+            missing = anchor_features.reshape(batch_size, Na, -1).abs().sum(dim=-1) == 0
+        else:
+            missing = torch.zeros(batch_size, Na, dtype=torch.bool, device=anchor_features.device)
+
+        if anchor_mask is not None:
+            missing = missing | anchor_mask
+
+        if self.training and self.anchor_dropout > 0:
+            drop = torch.rand(batch_size, Na, device=anchor_features.device) < self.anchor_dropout
+            dropped = missing | drop
+            # Do not apply dropout to samples that would lose every anchor
+            keep_original = dropped.all(dim=1, keepdim=True)
+            missing = torch.where(keep_original, missing, dropped)
+
+        # A sample with no anchors at all cannot be masked (attention would be NaN)
+        missing = missing & ~missing.all(dim=1, keepdim=True)
+        return missing
+
+    def forward(self, anchor_features, anchor_mask=None):
         """
         Forward pass.
 
         Args:
             anchor_features: (batch, Na, Ntap, 2M) tensor
+            anchor_mask: optional (batch, Na) bool tensor, True for anchors to ignore
 
         Returns:
             (batch, 3) for regression or (batch, num_classes) for classification
         """
         batch_size, Na, Ntap, channels_2M = anchor_features.shape
+
+        missing = self._anchor_mask(anchor_features, anchor_mask)
 
         # Step 1: Encode each anchor independently using shared encoder
         # Reshape to (batch*Na, Ntap, 2M) to process all anchors in parallel
@@ -90,11 +145,20 @@ class IndoorLocalizationModel(nn.Module):
         # Step 2: Reshape back to (batch, Na, embed_dim)
         anchor_embeddings = embeddings.reshape(batch_size, Na, -1)
 
-        # Step 3: Cross-anchor fusion via transformer
-        fused_embeddings = self.transformer(anchor_embeddings)  # (batch, Na, embed_dim)
+        if self.use_anchor_position:
+            anchor_embeddings = anchor_embeddings + self.anchor_pos_embed(self.anchor_pos[:Na])
 
-        # Step 4: Global aggregation via mean pooling (permutation-invariant)
-        global_feature = fused_embeddings.mean(dim=1)  # (batch, embed_dim)
+        # Step 3: Cross-anchor fusion via transformer
+        fused_embeddings = self.transformer(anchor_embeddings, key_padding_mask=missing)  # (batch, Na, embed_dim)
+
+        # Step 4: Global aggregation over the available anchors (permutation-invariant)
+        if self.pooling == 'attention':
+            scores = self.pool_score(fused_embeddings).squeeze(-1)  # (batch, Na)
+            weights = scores.masked_fill(missing, float('-inf')).softmax(dim=1)
+        else:
+            weights = (~missing).float()
+            weights = weights / weights.sum(dim=1, keepdim=True)
+        global_feature = (fused_embeddings * weights.unsqueeze(-1)).sum(dim=1)  # (batch, embed_dim)
 
         # Step 5: Task-specific head
         if self.task == 'regression':
@@ -106,19 +170,20 @@ class IndoorLocalizationModel(nn.Module):
 
         return output
 
-    def predict(self, anchor_features):
+    def predict(self, anchor_features, anchor_mask=None):
         """
         Inference mode with no gradient computation.
 
         Args:
             anchor_features: (batch, Na, Ntap, 2M) tensor
+            anchor_mask: optional (batch, Na) bool tensor, True for anchors to ignore
 
         Returns:
             predictions
         """
         self.eval()
         with torch.no_grad():
-            output = self.forward(anchor_features)
+            output = self.forward(anchor_features, anchor_mask)
 
         if self.task == 'classification':
             # Return class predictions
@@ -149,6 +214,15 @@ if __name__ == '__main__':
     pred = reg_model.predict(x)
     assert pred.shape == (8, 3), "Prediction shape mismatch!"
     print("  Prediction mode test passed!")
+
+    # Test permutation invariance and masking of missing anchors
+    perm = [2, 0, 3, 1]
+    assert torch.allclose(pred, reg_model.predict(x[:, perm]), atol=1e-5), "Not permutation invariant!"
+    x_missing = x.clone()
+    x_missing[:, 1] = 0
+    assert torch.allclose(reg_model.predict(x_missing), reg_model.predict(x[:, [0, 2, 3]]), atol=1e-5), \
+        "Missing anchor is not masked!"
+    print("  Permutation invariance and masking tests passed!")
 
     print("\nTesting Classification Model:")
     cls_config = ClassificationConfig()
