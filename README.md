@@ -34,6 +34,8 @@ No test position is used for training. Impairments (clock offset, CFO, phase noi
 
 The data files are not part of the repository because of their size.
 
+To view the scenario (office, the four APs, one example device and the rays between them) in Site Viewer, run `phy/wifiPosShowScenario.m`.
+
 ## 2. Run the experiments (Python)
 
 From the `deep-loc` folder:
