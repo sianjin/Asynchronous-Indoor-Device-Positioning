@@ -283,6 +283,9 @@ def main():
     config.num_anchors = len(extra['anchor_positions'])
     device = torch.device(args.device if args.device is not None
                           else 'cuda' if torch.cuda.is_available() else 'cpu')
+    if device.type == 'cuda':
+        # All inputs have the same size, so let cuDNN pick the fastest convolution algorithm
+        torch.backends.cudnn.benchmark = True
     split = {name: (X.to(device), Y.to(device)) for name, (X, Y) in split.items()}
     extra['conditions'] = {name: (X.to(device), Y.to(device))
                            for name, (X, Y) in extra['conditions'].items()}

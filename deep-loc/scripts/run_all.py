@@ -3,10 +3,11 @@ Run the full model comparison on the datasets written by phy/wifiPosGenerateData
 
 Usage (from the deep-loc folder):
     python scripts/run_all.py smoke     Quick test of every experiment (a few minutes)
-    python scripts/run_all.py           Run everything, one seed per parallel job
+    python scripts/run_all.py           Run everything, several experiments in parallel
     python scripts/run_all.py status    Show the progress of a run
 
-The data folder and the number of CPU threads are detected automatically.
+The data folder, the device (GPU if available, otherwise CPU) and the number
+of parallel jobs and CPU threads are detected automatically.
 Experiments that already have a result file are skipped, so an interrupted
 run can be restarted with the same command.
 """
@@ -15,10 +16,13 @@ import os
 import sys
 import glob
 import time
+import queue
 import argparse
 import platform
 import threading
 import subprocess
+
+import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,8 +57,12 @@ def parse_args():
                        help='Directory with the data_*.mat files (default: detected automatically)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2], help='Seeds to run')
     parser.add_argument('--epochs', type=int, default=60, help='Maximum number of epochs per run')
+    parser.add_argument('--jobs', type=int, default=None,
+                       help='Experiments to run in parallel (default: 3)')
     parser.add_argument('--threads', type=int, default=None,
-                       help='CPU threads per parallel job (default: physical cores / number of seeds)')
+                       help='CPU threads per parallel job (default: physical cores / number of jobs)')
+    parser.add_argument('--device', type=str, default=None, choices=['cuda', 'cpu'],
+                       help='Device to use (default: cuda if available, otherwise cpu)')
     return parser.parse_args()
 
 
@@ -149,32 +157,43 @@ def main():
         for path in glob.glob(os.path.join(output_dir, '*.json')):
             os.remove(path)
 
-    num_jobs = len(seeds)
+    device = args.device if args.device is not None else 'cuda' if torch.cuda.is_available() else 'cpu'
+    num_jobs = args.jobs if args.jobs is not None else 3
     threads = args.threads if args.threads is not None else max(1, num_physical_cores() // num_jobs)
     common_args = ['--data_dir', data_dir, '--epochs', str(args.epochs),
-                   '--warmup_epochs', '5', '--patience', '15', '--threads', str(threads)]
+                   '--warmup_epochs', '5', '--patience', '15', '--threads', str(threads),
+                   '--device', device]
     if smoke:
         common_args.append('--smoke')
 
     print(f"Data folder:   {data_dir}")
     print(f"Results:       {output_dir}")
-    print(f"Parallel jobs: {num_jobs} (one per seed), {threads} CPU threads each")
+    print(f"Device:        {device}" + (f" ({torch.cuda.get_device_name(0)})" if device == 'cuda' else ''))
+    print(f"Parallel jobs: {num_jobs}, {threads} CPU threads each")
     print(f"Experiments:   {len(EXPERIMENTS) * len(seeds)}")
 
-    # One worker per seed runs its experiments one after the other
+    # Every worker takes the next experiment from the queue (in order of priority)
+    tasks = queue.Queue()
+    for name, extra_args in EXPERIMENTS:
+        for seed in seeds:
+            tasks.put((name, seed, extra_args))
     failed = []
 
-    def worker(seed):
-        for name, extra_args in EXPERIMENTS:
+    def worker():
+        while True:
+            try:
+                name, seed, extra_args = tasks.get_nowait()
+            except queue.Empty:
+                return
             if not run_experiment(name, seed, extra_args, common_args, output_dir):
                 failed.append((name, seed))
 
-    workers = [threading.Thread(target=worker, args=(seed,), daemon=True) for seed in seeds]
+    workers = [threading.Thread(target=worker, daemon=True) for _ in range(num_jobs)]
     start = time.time()
     for w in workers:
         w.start()
     while any(w.is_alive() for w in workers):
-        time.sleep(5 if smoke else 300)
+        time.sleep(5 if smoke else 60 if device == 'cuda' else 300)
         num_done = len(glob.glob(os.path.join(output_dir, '*.json')))
         print(f"[{(time.time() - start) / 60:6.1f} min] {num_done} of "
               f"{len(EXPERIMENTS) * len(seeds)} experiments done", flush=True)
