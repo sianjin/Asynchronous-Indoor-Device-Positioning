@@ -18,7 +18,8 @@ class IndoorLocalizationModel(nn.Module):
     Architecture:
     1. Shared per-anchor encoder (Pure CNN with global pooling)
     2. Cross-anchor transformer fusion (missing anchors are masked)
-    3. Global aggregation (masked mean pooling or attention pooling)
+    3. Global aggregation (masked mean pooling, attention pooling, or
+       concatenation in the fixed anchor order as an order-dependent baseline)
     4. Task-specific head (regression or classification)
 
     Input: (batch, Na, Ntap, 2M)
@@ -75,18 +76,21 @@ class IndoorLocalizationModel(nn.Module):
         # Attention pooling: learned scalar score per anchor
         if self.pooling == 'attention':
             self.pool_score = nn.Linear(config.embed_dim, 1)
-        elif self.pooling != 'mean':
+        elif self.pooling not in ('mean', 'concat'):
             raise ValueError(f"Unknown pooling: {self.pooling}")
+
+        # Concatenation keeps one slot per anchor, so the head grows with Na
+        head_input_dim = config.embed_dim * (config.num_anchors if self.pooling == 'concat' else 1)
 
         # Task-specific heads
         self.regression_head = RegressionHead(
-            input_dim=config.embed_dim,
+            input_dim=head_input_dim,
             hidden_dims=config.regression_hidden_dims,
             dropout=config.head_dropout
         )
 
         self.classification_head = ClassificationHead(
-            input_dim=config.embed_dim,
+            input_dim=head_input_dim,
             hidden_dims=config.classification_hidden_dims,
             num_classes=config.num_classes,
             dropout=config.head_dropout
@@ -152,13 +156,17 @@ class IndoorLocalizationModel(nn.Module):
         fused_embeddings = self.transformer(anchor_embeddings, key_padding_mask=missing)  # (batch, Na, embed_dim)
 
         # Step 4: Global aggregation over the available anchors (permutation-invariant)
-        if self.pooling == 'attention':
-            scores = self.pool_score(fused_embeddings).squeeze(-1)  # (batch, Na)
-            weights = scores.masked_fill(missing, float('-inf')).softmax(dim=1)
+        if self.pooling == 'concat':
+            # Order-dependent baseline: missing anchors leave an all-zero slot
+            global_feature = fused_embeddings.masked_fill(missing.unsqueeze(-1), 0.0).flatten(1)
         else:
-            weights = (~missing).float()
-            weights = weights / weights.sum(dim=1, keepdim=True)
-        global_feature = (fused_embeddings * weights.unsqueeze(-1)).sum(dim=1)  # (batch, embed_dim)
+            if self.pooling == 'attention':
+                scores = self.pool_score(fused_embeddings).squeeze(-1)  # (batch, Na)
+                weights = scores.masked_fill(missing, float('-inf')).softmax(dim=1)
+            else:
+                weights = (~missing).float()
+                weights = weights / weights.sum(dim=1, keepdim=True)
+            global_feature = (fused_embeddings * weights.unsqueeze(-1)).sum(dim=1)  # (batch, embed_dim)
 
         # Step 5: Task-specific head
         if self.task == 'regression':

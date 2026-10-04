@@ -42,6 +42,13 @@ EXPERIMENTS = [
     ('attnpool_appos_complex', ['--model', 'transformer', '--use_anchor_position', '--pooling', 'attention']),
     ('apdropout_appos_complex', ['--model', 'transformer', '--use_anchor_position', '--anchor_dropout', '0.25']),
 
+    # Additional baselines: deeper residual CNN, order-dependent late fusion
+    # (shared encoder, embeddings concatenated in the fixed AP order), and the
+    # CNN trained with the same AP dropout as the proposed model
+    ('resnet_complex', ['--model', 'resnet']),
+    ('concat_complex', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat']),
+    ('cnn_apdropout_complex', ['--model', 'cnn', '--anchor_dropout', '0.25']),
+
     # Synchronized control: trained and tested without clock offset and phase noise
     ('transformer_appos_complex_sync', ['--model', 'transformer', '--use_anchor_position',
                                         '--train_condition', 'synchronized']),

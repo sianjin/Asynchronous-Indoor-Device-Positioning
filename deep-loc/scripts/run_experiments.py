@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.task_configs import get_config
 from src.models.localization_model import IndoorLocalizationModel
-from src.models.baseline_cnn import EarlyFusionCNN
+from src.models.baseline_cnn import EarlyFusionCNN, EarlyFusionResNet
 
 
 def parse_args():
@@ -31,7 +31,7 @@ def parse_args():
 
     parser.add_argument('--name', type=str, required=True, help='Experiment name')
     parser.add_argument('--model', type=str, default='transformer',
-                       choices=['transformer', 'cnn', 'knn'], help='Model type')
+                       choices=['transformer', 'cnn', 'resnet', 'knn'], help='Model type')
     parser.add_argument('--input', type=str, default='complex',
                        choices=['complex', 'magnitude'], help='Input representation')
     parser.add_argument('--seed', type=int, default=0, help='Seed for the split and the training')
@@ -42,10 +42,10 @@ def parse_args():
     parser.add_argument('--output_dir', type=str, default='results/camera_ready',
                        help='Directory to save results')
 
-    # Model variants (transformer only)
+    # Model variants
     parser.add_argument('--num_layers', type=int, default=None,
                        help='Number of transformer layers (0 = no cross-anchor attention)')
-    parser.add_argument('--pooling', type=str, default=None, choices=['mean', 'attention'])
+    parser.add_argument('--pooling', type=str, default=None, choices=['mean', 'attention', 'concat'])
     parser.add_argument('--anchor_dropout', type=float, default=None)
     parser.add_argument('--use_anchor_position', action='store_true')
 
@@ -133,7 +133,10 @@ def load_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
 def build_model(args, config):
     """Build the model for this experiment."""
     if args.model == 'cnn':
-        return EarlyFusionCNN(input_shape=config.input_shape, num_anchors=config.num_anchors)
+        return EarlyFusionCNN(input_shape=config.input_shape, num_anchors=config.num_anchors,
+                              anchor_dropout=config.anchor_dropout)
+    if args.model == 'resnet':
+        return EarlyFusionResNet(num_anchors=config.num_anchors)
     return IndoorLocalizationModel(config)
 
 

@@ -40,7 +40,7 @@ class DefaultConfig:
     # Model architecture - Anchor set handling
     mask_missing_anchors = True  # Exclude all-zero anchors from attention and pooling
     anchor_dropout = 0.0  # Probability of dropping each anchor during training
-    pooling = 'mean'  # 'mean' or 'attention'
+    pooling = 'mean'  # 'mean', 'attention' or 'concat'
     use_anchor_position = False  # Add an embedding of the AP coordinates to each anchor
     # AP coordinates in meters, in the anchor order of the dataset
     anchor_positions = [[0.1, 0.1, 2.1], [0.1, 7.9, 2.1], [4.9, 0.1, 2.1], [4.9, 7.9, 2.1]]
