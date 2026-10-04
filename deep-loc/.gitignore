@@ -70,3 +70,6 @@ Thumbs.db
 *.log
 *.tmp
 *~
+
+# Local Claude Code settings
+.claude/
