@@ -87,12 +87,12 @@ fs = double(ofdmInfo.SampleRate);
 fc = double(AP.TransmitterFrequency);
 
 % Hardware Offsets (Randomized per sample)
-sco = unifrnd(-imp.ClockOffsetPPM, imp.ClockOffsetPPM);
+sco = imp.ClockOffsetPPM * (2*rand - 1);
 sro = -sco / (1 + sco/1e6);
 cfo = (sco * 1e-6) * fc + (randn * imp.CFOJitterStd);
 
 % Velocity (Walking speed)
-v_mag = unifrnd(0, imp.MaxSpeed);
+v_mag = imp.MaxSpeed * rand;
 v_vec = randn(3,1);
 v_vec = v_vec / (norm(v_vec) + 1e-9) * v_mag;
 
@@ -116,7 +116,7 @@ rxImpaired = rxImpaired .* exp(1j * 2 * pi * cfo * t);
 
 % C. Fast Random Walk Phase Noise
 % Models intrinsic LO jitter that survive synchronization
-pn_std = unifrnd(imp.PhaseNoiseStd(1), imp.PhaseNoiseStd(end));
+pn_std = imp.PhaseNoiseStd(1) + (imp.PhaseNoiseStd(end) - imp.PhaseNoiseStd(1)) * rand;
 rxImpaired = rxImpaired .* exp(1j * cumsum(pn_std * randn(size(rxImpaired,1), 1)));
 
 p.ClockOffsetPPM = sco;

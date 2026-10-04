@@ -70,7 +70,7 @@ for c = 1:numel(names)
     [X,labels] = dlPositioningGenerateDataSetV2(rays,STAs,APs,cfg,snrs,impairments);
 
     position = labels.position;
-    classification = grp2idx(categorical(labels.class, category_names(:)));
+    classification = double(categorical(labels.class(:), category_names(:)));
     snr = labels.snr;
     los = labels.los;
     detected = labels.detected;
