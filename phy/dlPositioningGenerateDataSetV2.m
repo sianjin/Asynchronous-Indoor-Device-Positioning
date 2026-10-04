@@ -1,8 +1,8 @@
-function [cir, labels] = dlPositioningGenerateDataSetV2(rays, STAs, APs, cfg, snrs, imp)
+function [cir, labels] = dlPositioningGenerateDataSetV2(rays, STAs, APs, cfg, snrs, imp, seed)
 %dlPositioningGenerateDataSetV2 Generate a Dataset of Complex CIR Fingerprints
 %   (Stacked Real/Imaginary parts) with configurable hardware impairments
 %
-%   [CIR,LABELS] = dlPositioningGenerateDataSetV2(RAYS,STAS,APS,CFG,SNRS,IMP)
+%   [CIR,LABELS] = dlPositioningGenerateDataSetV2(RAYS,STAS,APS,CFG,SNRS,IMP,SEED)
 %   differs from dlPositioningGenerateDataSet in three ways:
 %     1. The hardware impairments are set by the structure IMP and are drawn
 %        independently for every sample (every AP, STA and SNR), instead of
@@ -24,6 +24,12 @@ function [cir, labels] = dlPositioningGenerateDataSetV2(rays, STAs, APs, cfg, sn
 %     MaxSpeed        - Maximum STA speed in m/s (uniform in [0, MaxSpeed]).
 %   Set a field to 0 to disable that impairment.
 %
+%   SEED is the seed of the random number generator. Every STA uses its own
+%   substream, so the output does not depend on the number of workers.
+%
+%   The loop over STAs is a parfor loop: it runs on a parallel pool when
+%   Parallel Computing Toolbox is available and serially otherwise.
+%
 %   CIR is a Ntap-by-2*Nsts*Nr-by-numAPs-by-numSTAs*numSNRs array.
 
 ofdmSymbolOffset = 0.75;
@@ -41,31 +47,53 @@ detected = false([numAPs numSNRs numSTAs]);
 clockOffsetPPM = zeros([numAPs numSNRs numSTAs]);
 phaseNoiseStd = zeros([numAPs numSNRs numSTAs]);
 position = zeros([3 numSTAs]);
-class = categorical(strings(1,numSTAs));
+className = strings(1,numSTAs);
 
-for rxn = 1:numSTAs
-    position(:,rxn) = STAs(rxn).AntennaPosition;
-    class(rxn) = categorical(cellstr(STAs(rxn).Name));
+parfor rxn = 1:numSTAs
+    % Independent, reproducible random numbers for every STA
+    stream = RandStream("Threefry","Seed",seed);
+    stream.Substream = rxn;
+    RandStream.setGlobalStream(stream);
+
+    STA = STAs(rxn);
+    raysSTA = rays(:,rxn);
+    position(:,rxn) = STA.AntennaPosition;
+    className(rxn) = string(STA.Name);
+
+    % Results of this STA (sliced into the outputs after the AP loop)
+    cirSTA = zeros([numTaps 2*numSpatialStreams numAPs numSNRs], 'single');
+    losSTA = false([numAPs numSNRs]);
+    detectedSTA = false([numAPs numSNRs]);
+    clockOffsetSTA = zeros([numAPs numSNRs]);
+    phaseNoiseSTA = zeros([numAPs numSNRs]);
+
     for txn = 1:numAPs
-        r = rays{txn,rxn};
+        r = raysSTA{txn};
         if isempty(r)
             continue
         end
-        los(txn,:,rxn) = any([r.LineOfSight]);
+        losSTA(txn,:) = any([r.LineOfSight]);
         for s = 1:numSNRs
             % Independent impairment realization for every sample
-            [c, d, p] = generateComplexCIR(r,APs(txn),STAs(rxn),cfg,txWaveform,ofdmInfo,snrs(s),numTaps,imp);
-            cir(:,:,txn,s,rxn) = c;
-            detected(txn,s,rxn) = d;
-            clockOffsetPPM(txn,s,rxn) = p.ClockOffsetPPM;
-            phaseNoiseStd(txn,s,rxn) = p.PhaseNoiseStd;
+            [c, d, p] = generateComplexCIR(r,APs(txn),STA,cfg,txWaveform,ofdmInfo,snrs(s),numTaps,imp);
+            cirSTA(:,:,txn,s) = c;
+            detectedSTA(txn,s) = d;
+            clockOffsetSTA(txn,s) = p.ClockOffsetPPM;
+            phaseNoiseSTA(txn,s) = p.PhaseNoiseStd;
         end
     end
 
-    if mod(rxn,ceil(numSTAs/10))==0
-        disp(['Generating Complex Dataset: ', num2str(round(100*rxn/numSTAs)), '% complete.'])
+    cir(:,:,:,:,rxn) = cirSTA;
+    los(:,:,rxn) = losSTA;
+    detected(:,:,rxn) = detectedSTA;
+    clockOffsetPPM(:,:,rxn) = clockOffsetSTA;
+    phaseNoiseStd(:,:,rxn) = phaseNoiseSTA;
+
+    if mod(rxn,ceil(numSTAs/20))==0
+        disp(['Generating Complex Dataset: STA ', num2str(rxn), ' of ', num2str(numSTAs), ' done.'])
     end
 end
+class = categorical(className);
 
 % Merge the SNR and STA dimensions into one sample dimension
 numSamples = numSNRs*numSTAs;

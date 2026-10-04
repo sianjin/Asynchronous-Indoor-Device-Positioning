@@ -5,6 +5,9 @@
 %     separately from the training positions (no position is shared).
 %   - Impairments are drawn independently for every sample.
 %   - The SNR, line-of-sight flag and detection flag of every sample are saved.
+%   - The loop over STAs runs on a parallel pool when Parallel Computing
+%     Toolbox is available. The ray-tracing result is cached in rays_v2_*.mat
+%     and finished datasets are skipped, so the script can be restarted.
 %   - The test positions are simulated under several impairment conditions.
 %
 % Output: one data_v2_<set>_<condition>.mat file per dataset, to be copied
@@ -38,18 +41,25 @@ trainConditions = struct("nominal",nominal,"synchronized",synchronized);
 testConditions  = struct("nominal",nominal,"synchronized",synchronized, ...
     "clockOnly",clockOnly,"phaseOnly",phaseOnly,"severe",severe);
 
-% Create environment. The APs are identical in both calls
-[APs,trainSTAs] = dlPositioningCreateEnvironment(txArraySize,rxArraySize,numTrainSTAs,"random");
-[~,testSTAs]    = dlPositioningCreateEnvironment(txArraySize,rxArraySize,numTestSTAs,"random");
-apPositions = [APs.AntennaPosition];
+% Create environment and perform ray tracing for all transmitters and
+% receivers. The result is cached, so a restart does not repeat it
+raysFileName = sprintf("rays_v2_%d_%d.mat",numTrainSTAs,numTestSTAs);
+if isfile(raysFileName)
+    load(raysFileName,"APs","trainSTAs","testSTAs","trainRays","testRays");
+else
+    % The APs are identical in both calls
+    [APs,trainSTAs] = dlPositioningCreateEnvironment(txArraySize,rxArraySize,numTrainSTAs,"random");
+    [~,testSTAs]    = dlPositioningCreateEnvironment(txArraySize,rxArraySize,numTestSTAs,"random");
 
-% Perform ray tracing for all transmitters and receivers
-pm = propagationModel("raytracing", ...
-    "CoordinateSystem","cartesian", ...
-    "SurfaceMaterial","wood", ...
-    "MaxNumReflections",maxNumReflections);
-trainRays = raytrace(APs,trainSTAs,pm,"Map",mapFileName);
-testRays  = raytrace(APs,testSTAs,pm,"Map",mapFileName);
+    pm = propagationModel("raytracing", ...
+        "CoordinateSystem","cartesian", ...
+        "SurfaceMaterial","wood", ...
+        "MaxNumReflections",maxNumReflections);
+    trainRays = raytrace(APs,trainSTAs,pm,"Map",mapFileName);
+    testRays  = raytrace(APs,testSTAs,pm,"Map",mapFileName);
+    save(raysFileName,"APs","trainSTAs","testSTAs","trainRays","testRays");
+end
+apPositions = [APs.AntennaPosition];
 
 % Configure
 cfg = heRangingConfig('ChannelBandwidth',chanBW, ...
@@ -57,17 +67,25 @@ cfg = heRangingConfig('ChannelBandwidth',chanBW, ...
     "SecureHELTF",false);
 cfg.User{1}.NumSpaceTimeStreams = prod(txArraySize);
 
-% Generate and save datasets
-generateAndSave("train",trainConditions,trainRays,trainSTAs,APs,cfg,snrs,apPositions);
-generateAndSave("test",testConditions,testRays,testSTAs,APs,cfg,snrs,apPositions);
+% Generate and save datasets. Every dataset has its own seed, and datasets
+% that already exist are skipped, so the script can be restarted
+generateAndSave("train",trainConditions,trainRays,trainSTAs,APs,cfg,snrs,apPositions,100);
+generateAndSave("test",testConditions,testRays,testSTAs,APs,cfg,snrs,apPositions,200);
 
-function generateAndSave(setName,conditions,rays,STAs,APs,cfg,snrs,apPositions)
+function generateAndSave(setName,conditions,rays,STAs,APs,cfg,snrs,apPositions,baseSeed)
 category_names = {'conference_room';'desk1';'desk2';'desk3';'desk4';'office';'storage'};
 names = fieldnames(conditions);
 for c = 1:numel(names)
+    fileName = ['data_v2_',setName,'_',names{c},'.mat'];
+    if isfile(fileName)
+        disp(['Skipping ',fileName,' (already exists)'])
+        continue
+    end
     impairments = conditions.(names{c});
     disp(['Generating ',setName,' set, condition ',names{c},'...'])
-    [X,labels] = dlPositioningGenerateDataSetV2(rays,STAs,APs,cfg,snrs,impairments);
+    tStart = tic;
+    [X,labels] = dlPositioningGenerateDataSetV2(rays,STAs,APs,cfg,snrs,impairments,baseSeed+c);
+    disp(['Done in ',num2str(round(toc(tStart)/60,1)),' minutes.'])
 
     position = labels.position;
     classification = double(categorical(labels.class(:), category_names(:)));
@@ -77,7 +95,6 @@ for c = 1:numel(names)
     clockOffsetPPM = labels.clockOffsetPPM;
     phaseNoiseStd = labels.phaseNoiseStd;
 
-    fileName = ['data_v2_',setName,'_',names{c},'.mat'];
     save(fileName,'X','position','classification','snr','los','detected', ...
         'clockOffsetPPM','phaseNoiseStd','impairments','apPositions','-v7')
 end
