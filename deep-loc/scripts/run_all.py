@@ -57,6 +57,9 @@ def parse_args():
                        help='Directory with the data_*.mat files (default: detected automatically)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2], help='Seeds to run')
     parser.add_argument('--epochs', type=int, default=60, help='Maximum number of epochs per run')
+    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience in epochs')
+    parser.add_argument('--results_name', type=str, default='camera_ready',
+                       help='Name of the results folder under results/')
     parser.add_argument('--jobs', type=int, default=None,
                        help='Experiments to run in parallel (default: 3)')
     parser.add_argument('--threads', type=int, default=None,
@@ -143,7 +146,7 @@ def main():
     """Main function."""
     args = parse_args()
     smoke = args.mode == 'smoke'
-    output_dir = os.path.join(ROOT, 'results', 'smoke_test' if smoke else 'camera_ready')
+    output_dir = os.path.join(ROOT, 'results', 'smoke_test' if smoke else args.results_name)
     seeds = [0] if smoke else args.seeds
 
     if args.mode == 'status':
@@ -161,7 +164,7 @@ def main():
     num_jobs = args.jobs if args.jobs is not None else 3
     threads = args.threads if args.threads is not None else max(1, num_physical_cores() // num_jobs)
     common_args = ['--data_dir', data_dir, '--epochs', str(args.epochs),
-                   '--warmup_epochs', '5', '--patience', '15', '--threads', str(threads),
+                   '--warmup_epochs', '5', '--patience', str(args.patience), '--threads', str(threads),
                    '--device', device]
     if smoke:
         common_args.append('--smoke')
