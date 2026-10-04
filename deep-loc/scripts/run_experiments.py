@@ -49,6 +49,12 @@ def parse_args():
     parser.add_argument('--anchor_dropout', type=float, default=None)
     parser.add_argument('--use_anchor_position', action='store_true')
 
+    # Receiver reference (complex input only)
+    parser.add_argument('--random_phase', action='store_true',
+                       help='Rotate the CIR of every AP by a uniformly random common phase')
+    parser.add_argument('--random_delay', action='store_true',
+                       help='Shift the CIR of every AP by a random fraction of a sample')
+
     # Training
     parser.add_argument('--epochs', type=int, default=None)
     parser.add_argument('--lr', type=float, default=None)
@@ -130,6 +136,44 @@ def load_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
     return split, extra
 
 
+def randomize_reference(X, random_phase, random_delay, generator=None):
+    """
+    Randomize the phase and timing reference of every AP observation.
+
+    In the simulated data the carrier phase offset is zero at the start of
+    every packet and the first path lies on the receiver sampling grid. A real
+    asynchronous receiver has neither property: the common phase of an AP is
+    arbitrary and its timing has a random sub-sample offset. Both are applied
+    here to the stored CIRs.
+
+    Args:
+        X: (N, Na, Ntap, 2M) tensor with real and imaginary parts stacked
+        random_phase: multiply every AP by exp(j phi), phi uniform in [0, 2 pi)
+        random_delay: delay every AP by d samples, d uniform in [-0.5, 0.5)
+        generator: optional torch.Generator for reproducible draws
+
+    Returns:
+        tensor of the same shape; all-zero (undetected) APs stay all-zero
+    """
+    if not (random_phase or random_delay):
+        return X
+    N, Na, Ntap, width = X.shape
+    M = width // 2
+    H = torch.complex(X[..., :M], X[..., M:])
+
+    def uniform(low, high):
+        return low + (high - low) * torch.rand(N, Na, 1, 1, device=X.device, generator=generator)
+
+    if random_delay:
+        # Fractional delay as a linear phase over the Fourier transform of the taps
+        frequency = torch.fft.fftfreq(Ntap, device=X.device).reshape(1, 1, Ntap, 1)
+        H = torch.fft.ifft(torch.fft.fft(H, dim=2) * torch.exp(-2j * np.pi * frequency * uniform(-0.5, 0.5)),
+                           dim=2)
+    if random_phase:
+        H = H * torch.exp(1j * uniform(0.0, 2 * np.pi))
+    return torch.cat([H.real, H.imag], dim=-1)
+
+
 def build_model(args, config):
     """Build the model for this experiment."""
     if args.model == 'cnn':
@@ -157,7 +201,7 @@ def distance_error(pred_norm, target, pos_min, pos_max):
     return torch.sqrt(((pred - target) ** 2).sum(dim=-1))
 
 
-def train(model, split, config, pos_min, pos_max):
+def train(model, split, config, pos_min, pos_max, random_phase=False, random_delay=False):
     """Train with warmup + cosine schedule and early stopping on the validation error."""
     X_train, Y_train = split['train']
     X_val, Y_val = split['val']
@@ -181,7 +225,9 @@ def train(model, split, config, pos_min, pos_max):
         for i in range(0, len(perm), config.batch_size):
             idx = perm[i:i + config.batch_size]
             optimizer.zero_grad()
-            loss = criterion(model(X_train[idx]), target_train[idx])
+            # A new phase and timing reference is drawn every time a sample is used
+            batch = randomize_reference(X_train[idx], random_phase, random_delay)
+            loss = criterion(model(batch), target_train[idx])
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * len(idx)
@@ -293,6 +339,16 @@ def main():
     extra['conditions'] = {name: (X.to(device), Y.to(device))
                            for name, (X, Y) in extra['conditions'].items()}
 
+    if args.random_phase or args.random_delay:
+        if args.input != 'complex':
+            raise ValueError("--random_phase and --random_delay require complex input")
+        # Validation and test sets get one fixed random reference per AP and sample
+        generator = torch.Generator(device=device).manual_seed(12345)
+        randomize = lambda X: randomize_reference(X, args.random_phase, args.random_delay, generator)
+        split = {name: (X if name == 'train' else randomize(X), Y) for name, (X, Y) in split.items()}
+        extra['conditions'] = {name: (split['test'][0] if name == args.train_condition else randomize(X), Y)
+                               for name, (X, Y) in extra['conditions'].items()}
+
     config.input_shape = tuple(split['train'][0].shape[2:])
     pos_min = torch.tensor(config.pos_min, device=device)
     pos_max = torch.tensor(config.pos_max, device=device)
@@ -315,7 +371,8 @@ def main():
         if args.model == 'transformer':
             # The unused classification head is not part of the regression model
             result['num_params'] -= sum(p.numel() for p in model.classification_head.parameters())
-        val_error, best_epoch = train(model, split, config, pos_min, pos_max)
+        val_error, best_epoch = train(model, split, config, pos_min, pos_max,
+                                      args.random_phase, args.random_delay)
         pred_norm = predict(model, X_test)
         pred = pred_norm * (pos_max - pos_min) + pos_min
         errors = distance_error(pred_norm, Y_test, pos_min, pos_max)

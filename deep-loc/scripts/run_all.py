@@ -51,6 +51,13 @@ EXPERIMENTS = [
     ('concat_apdropout_complex', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat',
                                   '--anchor_dropout', '0.25']),
 
+    # Receiver reference: uniformly random common phase per AP, and additionally a
+    # random sub-sample timing offset per AP, in training and in testing
+    ('transformer_appos_complex_randphase', ['--model', 'transformer', '--use_anchor_position',
+                                             '--random_phase']),
+    ('transformer_appos_complex_randphase_delay', ['--model', 'transformer', '--use_anchor_position',
+                                                   '--random_phase', '--random_delay']),
+
     # Synchronized control: trained and tested without clock offset and phase noise
     ('transformer_appos_complex_sync', ['--model', 'transformer', '--use_anchor_position',
                                         '--train_condition', 'synchronized']),
@@ -69,6 +76,8 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=15,
                        help='Early stopping patience in epochs (set to the number of epochs to disable)')
     parser.add_argument('--lr', type=float, default=None, help='Learning rate (default: 1e-3)')
+    parser.add_argument('--only', type=str, nargs='+', default=None,
+                       help='Run only the experiments with these names')
     parser.add_argument('--redo_early_stopped', action='store_true',
                        help='Repeat the finished experiments that stopped before the last epoch')
     parser.add_argument('--results_name', type=str, default='camera_ready',
@@ -158,6 +167,11 @@ def summarize(output_dir):
 def main():
     """Main function."""
     args = parse_args()
+    if args.only is not None:
+        unknown = set(args.only) - {name for name, _ in EXPERIMENTS}
+        if unknown:
+            sys.exit(f"Unknown experiments: {sorted(unknown)}")
+        EXPERIMENTS[:] = [e for e in EXPERIMENTS if e[0] in args.only]
     smoke = args.mode == 'smoke'
     output_dir = os.path.join(ROOT, 'results', 'smoke_test' if smoke else args.results_name)
     seeds = [0] if smoke else args.seeds

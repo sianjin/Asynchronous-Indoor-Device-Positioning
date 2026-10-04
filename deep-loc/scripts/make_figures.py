@@ -204,7 +204,11 @@ def plot_error_map(runs, map_path, data_path, path, name='transformer_appos_comp
     ax.set_ylim(-0.15, 5.15)
     ax.set_xlabel('y (m)')
     ax.set_ylabel('x (m)')
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.16), handletextpad=0.2)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.72, 1.16), handletextpad=0.2)
+    # Extent of the conference room along the long side of the office
+    ax.annotate('', xy=(0, 5.42), xytext=(2.75, 5.42), xycoords='data', annotation_clip=False,
+                arrowprops=dict(arrowstyle='|-|,widthA=0.25,widthB=0.25', color=INK, linewidth=0.7))
+    ax.text(1.375, 5.62, 'conference room', ha='center', va='bottom', fontsize=7, color=INK)
     colorbar = fig.colorbar(points, ax=ax, fraction=0.03, pad=0.02, ticks=[0, 0.25, 0.5, 0.75, 1.0])
     colorbar.ax.set_yticklabels(['0', '0.25', '0.5', '0.75', r'$\geq$1'])
     colorbar.set_label('Mean distance error (m)')

@@ -78,7 +78,7 @@ def main():
     ax.text(14.3, 8.6, 'no path: packet\nnot detected', ha='center', va='center', fontsize=6, color=MUTED,
             linespacing=1.1)
     ax.text(13.5, -0.2, r'known AP positions $\mathbf{p}_\ell$' '\n'
-            r'independent clocks: SCO/CFO $\epsilon_\ell$,' '\n'
+            r'clock offset $\epsilon_\ell$ (SCO, CFO $\Delta f_\ell$),' '\n'
             r'phase noise $\theta_\ell[n]$, unknown delay $\tau_\ell$',
             ha='center', va='center', fontsize=6.5, linespacing=1.2)
 
