@@ -42,7 +42,7 @@ class DefaultConfig:
     anchor_dropout = 0.0  # Probability of dropping each anchor during training
     pooling = 'mean'  # 'mean' or 'attention'
     use_anchor_position = False  # Add an embedding of the AP coordinates to each anchor
-    # AP coordinates in meters, in the anchor order of data.mat
+    # AP coordinates in meters, in the anchor order of the dataset
     anchor_positions = [[0.1, 0.1, 2.1], [0.1, 7.9, 2.1], [4.9, 0.1, 2.1], [4.9, 7.9, 2.1]]
 
     # Model architecture - Task heads

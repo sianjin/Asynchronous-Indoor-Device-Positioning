@@ -1,8 +1,8 @@
 """
 Experiment runner for the model comparison in the paper.
 
-Trains one model on a position-disjoint train/validation/test split and
-evaluates the best-validation checkpoint on the held-out test positions.
+Trains one model on a position-disjoint train/validation split and evaluates
+the best-validation checkpoint on separately generated test positions.
 All models share the same split, optimizer, schedule and stopping rule.
 """
 
@@ -35,10 +35,10 @@ def parse_args():
     parser.add_argument('--input', type=str, default='complex',
                        choices=['complex', 'magnitude'], help='Input representation')
     parser.add_argument('--seed', type=int, default=0, help='Seed for the split and the training')
-    parser.add_argument('--data_path', type=str, default='data.mat',
-                       help='Path to data.mat file, or to the directory with the data_v2_*.mat files')
+    parser.add_argument('--data_dir', type=str, default='.',
+                       help='Directory with the data_*.mat files')
     parser.add_argument('--train_condition', type=str, default='nominal',
-                       help='Impairment condition of the training set (data_v2 only)')
+                       help='Impairment condition of the training set')
     parser.add_argument('--output_dir', type=str, default='results/camera_ready',
                        help='Directory to save results')
 
@@ -61,58 +61,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_grouped_split(data_path, seed, input_mode, val_frac=0.15, test_frac=0.15):
-    """
-    Load data.mat and split it by device position.
-
-    The MATLAB split is per sample, so the same position appears in both of its
-    sets at different SNRs. Here both sets are merged and re-split so that all
-    samples of one position fall in the same set.
-
-    Returns:
-        dict with 'train', 'val', 'test' -> (features (N, Na, Ntap, W), positions (N, 3))
-    """
-    data = scipy.io.loadmat(data_path)
-    X = np.concatenate([data[k][0, 0]['X'] for k in ['training', 'validation']], axis=3)
-    Y = np.concatenate([data[k][0, 0]['Y'][0, 0]['regression'] for k in ['training', 'validation']], axis=1)
-
-    X = np.transpose(X, (3, 2, 0, 1)).astype(np.float32)  # (N, Na, Ntap, 2M)
-    Y = Y.T.astype(np.float32)  # (N, 3)
-
-    # Samples in which no AP was detected carry no information about the position
-    detected = np.abs(X).sum(axis=(1, 2, 3)) > 0
-    X, Y = X[detected], Y[detected]
-
-    if input_mode == 'magnitude':
-        M = X.shape[-1] // 2
-        X = np.sqrt(X[..., :M] ** 2 + X[..., M:] ** 2)  # (N, Na, Ntap, M)
-
-    # Position-disjoint split
-    _, group = np.unique(np.round(Y, 3), axis=0, return_inverse=True)
-    group = group.reshape(-1)
-    num_groups = group.max() + 1
-    order = np.random.RandomState(seed).permutation(num_groups)
-    num_test = int(round(test_frac * num_groups))
-    num_val = int(round(val_frac * num_groups))
-    sets = {
-        'test': order[:num_test],
-        'val': order[num_test:num_test + num_val],
-        'train': order[num_test + num_val:]
-    }
-
-    # Global input scale from the detected anchors of the training set
-    train_idx = np.isin(group, sets['train'])
-    scale = X[train_idx][np.abs(X[train_idx]).sum(axis=(2, 3)) > 0].std()
-
-    split = {}
-    for name, groups in sets.items():
-        idx = np.isin(group, groups)
-        split[name] = (torch.from_numpy(X[idx] / scale), torch.from_numpy(Y[idx]))
-    return split
-
-
-def load_v2_file(path, input_mode):
-    """Load one data_v2_*.mat file written by phy/wifiPosGenerateDataV2.m."""
+def load_data_file(path, input_mode):
+    """Load one data_*.mat file written by phy/wifiPosGenerateData.m."""
     data = scipy.io.loadmat(path)
     X = np.transpose(data['X'], (3, 2, 0, 1)).astype(np.float32)  # (N, Na, Ntap, 2M)
     if input_mode == 'magnitude':
@@ -127,9 +77,9 @@ def load_v2_file(path, input_mode):
     }
 
 
-def load_v2_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
+def load_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
     """
-    Load the datasets written by phy/wifiPosGenerateDataV2.m.
+    Load the datasets written by phy/wifiPosGenerateData.m.
 
     The training file is split by device position into training and validation
     sets. The test positions come from separate files, one per impairment
@@ -141,7 +91,7 @@ def load_v2_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
         extra: dict with the per-sample 'snr' and 'num_los' of the test set, the
             test sets of the other conditions and the AP coordinates
     """
-    train = load_v2_file(os.path.join(data_dir, f'data_v2_train_{train_condition}.mat'), input_mode)
+    train = load_data_file(os.path.join(data_dir, f'data_train_{train_condition}.mat'), input_mode)
 
     # Samples in which no AP was detected carry no information about the position
     def detected(d):
@@ -165,10 +115,10 @@ def load_v2_split(data_dir, train_condition, seed, input_mode, val_frac=0.15):
     split = {'train': to_set(train, train_idx), 'val': to_set(train, keep & is_val)}
 
     extra = {'conditions': {}, 'anchor_positions': train['anchor_positions'].tolist()}
-    prefix = os.path.join(data_dir, 'data_v2_test_')
-    for path in sorted(p for p in os.listdir(data_dir) if p.startswith('data_v2_test_')):
-        condition = path[len('data_v2_test_'):-len('.mat')]
-        test = load_v2_file(prefix + condition + '.mat', input_mode)
+    prefix = os.path.join(data_dir, 'data_test_')
+    for path in sorted(p for p in os.listdir(data_dir) if p.startswith('data_test_')):
+        condition = path[len('data_test_'):-len('.mat')]
+        test = load_data_file(prefix + condition + '.mat', input_mode)
         idx = detected(test)
         extra['conditions'][condition] = to_set(test, idx)
         if condition == train_condition:
@@ -318,19 +268,14 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    extra = None
-    if os.path.isdir(args.data_path):
-        split, extra = load_v2_split(args.data_path, args.train_condition, args.seed, args.input)
-        config.anchor_positions = extra['anchor_positions']
-        config.num_anchors = len(extra['anchor_positions'])
-    else:
-        split = load_grouped_split(args.data_path, args.seed, args.input)
+    split, extra = load_split(args.data_dir, args.train_condition, args.seed, args.input)
+    config.anchor_positions = extra['anchor_positions']
+    config.num_anchors = len(extra['anchor_positions'])
     device = torch.device(args.device if args.device is not None
                           else 'cuda' if torch.cuda.is_available() else 'cpu')
     split = {name: (X.to(device), Y.to(device)) for name, (X, Y) in split.items()}
-    if extra is not None:
-        extra['conditions'] = {name: (X.to(device), Y.to(device))
-                               for name, (X, Y) in extra['conditions'].items()}
+    extra['conditions'] = {name: (X.to(device), Y.to(device))
+                           for name, (X, Y) in extra['conditions'].items()}
 
     config.input_shape = tuple(split['train'][0].shape[2:])
     pos_min = torch.tensor(config.pos_min, device=device)
@@ -369,18 +314,17 @@ def main():
     })
 
     errors = errors.cpu()
-    if extra is not None:
-        # Breakdown of the test error by SNR and by number of line-of-sight APs
-        result['train_condition'] = args.train_condition
-        result['error_by_snr'] = {str(int(v)): errors[torch.from_numpy(extra['snr'] == v)].mean().item()
-                                  for v in np.unique(extra['snr'])}
-        result['error_by_num_los'] = {str(int(v)): errors[torch.from_numpy(extra['num_los'] == v)].mean().item()
-                                      for v in np.unique(extra['num_los'])}
-        # Test error under the other impairment conditions (same test positions)
-        if args.model != 'knn':
-            result['error_by_condition'] = {
-                name: distance_error(predict(model, X), Y, pos_min, pos_max).mean().item()
-                for name, (X, Y) in extra['conditions'].items()}
+    # Breakdown of the test error by SNR and by number of line-of-sight APs
+    result['train_condition'] = args.train_condition
+    result['error_by_snr'] = {str(int(v)): errors[torch.from_numpy(extra['snr'] == v)].mean().item()
+                              for v in np.unique(extra['snr'])}
+    result['error_by_num_los'] = {str(int(v)): errors[torch.from_numpy(extra['num_los'] == v)].mean().item()
+                                  for v in np.unique(extra['num_los'])}
+    # Test error under the other impairment conditions (same test positions)
+    if args.model != 'knn':
+        result['error_by_condition'] = {
+            name: distance_error(predict(model, X), Y, pos_min, pos_max).mean().item()
+            for name, (X, Y) in extra['conditions'].items()}
 
     os.makedirs(args.output_dir, exist_ok=True)
     path = os.path.join(args.output_dir, f"{args.name}_seed{args.seed}")
@@ -389,7 +333,7 @@ def main():
     np.savez(path + '.npz', errors=errors.numpy(), predicted_positions=pred.cpu().numpy(),
              ground_truth_positions=Y_test.cpu().numpy(),
              num_detected_anchors=(X_test.abs().sum(dim=(2, 3)) > 0).sum(dim=1).cpu().numpy(),
-             **({} if extra is None else {'snr': extra['snr'], 'num_los': extra['num_los']}))
+             snr=extra['snr'], num_los=extra['num_los'])
 
     print(json.dumps(result, indent=2))
 

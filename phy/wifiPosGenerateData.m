@@ -1,16 +1,15 @@
-% Generate the datasets for the camera-ready experiments.
+% Generate the training and test datasets.
 %
-% Compared with wifiPosTransformer.m:
 %   - STAs are placed at random positions, and the test positions are drawn
 %     separately from the training positions (no position is shared).
 %   - Impairments are drawn independently for every sample.
 %   - The SNR, line-of-sight flag and detection flag of every sample are saved.
 %   - The loop over STAs runs on a parallel pool when Parallel Computing
-%     Toolbox is available. The ray-tracing result is cached in rays_v2_*.mat
+%     Toolbox is available. The ray-tracing result is cached in rays_*.mat
 %     and finished datasets are skipped, so the script can be restarted.
 %   - The test positions are simulated under several impairment conditions.
 %
-% Output: one data_v2_<set>_<condition>.mat file per dataset, to be copied
+% Output: one data_<set>_<condition>.mat file per dataset, to be copied
 % into the python folder.
 
 % load office map
@@ -43,7 +42,7 @@ testConditions  = struct("nominal",nominal,"synchronized",synchronized, ...
 
 % Create environment and perform ray tracing for all transmitters and
 % receivers. The result is cached, so a restart does not repeat it
-raysFileName = sprintf("rays_v2_%d_%d.mat",numTrainSTAs,numTestSTAs);
+raysFileName = sprintf("rays_%d_%d.mat",numTrainSTAs,numTestSTAs);
 if isfile(raysFileName)
     load(raysFileName,"APs","trainSTAs","testSTAs","trainRays","testRays");
 else
@@ -77,7 +76,7 @@ category_names = {'conference_room';'desk1';'desk2';'desk3';'desk4';'office';'st
 setName = char(setName);
 names = fieldnames(conditions);
 for c = 1:numel(names)
-    fileName = ['data_v2_',setName,'_',names{c},'.mat'];
+    fileName = ['data_',setName,'_',names{c},'.mat'];
     if isfile(fileName)
         disp(['Skipping ',fileName,' (already exists)'])
         continue
@@ -85,7 +84,7 @@ for c = 1:numel(names)
     impairments = conditions.(names{c});
     disp(['Generating ',setName,' set, condition ',names{c},'...'])
     tStart = tic;
-    [X,labels] = dlPositioningGenerateDataSetV2(rays,STAs,APs,cfg,snrs,impairments,baseSeed+c);
+    [X,labels] = dlPositioningGenerateDataSet(rays,STAs,APs,cfg,snrs,impairments,baseSeed+c);
     disp(['Done in ',num2str(round(toc(tStart)/60,1)),' minutes.'])
 
     position = labels.position;

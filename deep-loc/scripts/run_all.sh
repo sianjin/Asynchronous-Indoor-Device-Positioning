@@ -1,8 +1,8 @@
 #!/bin/bash
-# Run the full model comparison on the datasets written by phy/wifiPosGenerateDataV2.m.
+# Run the full model comparison on the datasets written by phy/wifiPosGenerateData.m.
 #
 # Usage: bash scripts/run_all.sh [data_dir] [epochs] [seeds]
-#   data_dir: directory with the data_v2_*.mat files (default: current directory)
+#   data_dir: directory with the data_*.mat files (default: current directory)
 #   epochs:   maximum number of epochs per run (default: 60)
 #   seeds:    quoted list of seeds (default: "0 1 2")
 #
@@ -11,8 +11,8 @@
 DATA=${1:-.}
 EPOCHS=${2:-60}
 SEEDS=${3:-"0 1 2"}
-OUT=results/camera_ready_v2
-COMMON="--data_path $DATA --output_dir $OUT --epochs $EPOCHS --warmup_epochs 5 --patience 15"
+OUT=results/camera_ready
+COMMON="--data_dir $DATA --output_dir $OUT --epochs $EPOCHS --warmup_epochs 5 --patience 15"
 
 mkdir -p $OUT/logs
 

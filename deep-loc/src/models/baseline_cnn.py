@@ -1,7 +1,7 @@
 """
 Early-fusion CNN baseline.
-PyTorch port of the network in phy/wifiPosCNN.m (MathWorks 802.11az
-fingerprinting example): the anchors are stacked as input channels.
+PyTorch port of the network in the MathWorks 802.11az fingerprinting
+example: the anchors are stacked as input channels.
 """
 
 import torch

@@ -12,7 +12,7 @@ import numpy as np
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Summarize experiment results over seeds')
-    parser.add_argument('--results_dir', type=str, default='results/camera_ready_v2',
+    parser.add_argument('--results_dir', type=str, default='results/camera_ready',
                        help='Directory with the result .json files')
     return parser.parse_args()
 
