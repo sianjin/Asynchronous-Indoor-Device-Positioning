@@ -48,6 +48,8 @@ EXPERIMENTS = [
     ('resnet_complex', ['--model', 'resnet']),
     ('concat_complex', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat']),
     ('cnn_apdropout_complex', ['--model', 'cnn', '--anchor_dropout', '0.25']),
+    ('concat_apdropout_complex', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat',
+                                  '--anchor_dropout', '0.25']),
 
     # Synchronized control: trained and tested without clock offset and phase noise
     ('transformer_appos_complex_sync', ['--model', 'transformer', '--use_anchor_position',
@@ -64,7 +66,11 @@ def parse_args():
                        help='Directory with the data_*.mat files (default: detected automatically)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2], help='Seeds to run')
     parser.add_argument('--epochs', type=int, default=60, help='Maximum number of epochs per run')
-    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience in epochs')
+    parser.add_argument('--patience', type=int, default=15,
+                       help='Early stopping patience in epochs (set to the number of epochs to disable)')
+    parser.add_argument('--lr', type=float, default=None, help='Learning rate (default: 1e-3)')
+    parser.add_argument('--redo_early_stopped', action='store_true',
+                       help='Repeat the finished experiments that stopped before the last epoch')
     parser.add_argument('--results_name', type=str, default='camera_ready',
                        help='Name of the results folder under results/')
     parser.add_argument('--jobs', type=int, default=None,
@@ -173,8 +179,20 @@ def main():
     common_args = ['--data_dir', data_dir, '--epochs', str(args.epochs),
                    '--warmup_epochs', '5', '--patience', str(args.patience), '--threads', str(threads),
                    '--device', device]
+    if args.lr is not None:
+        common_args += ['--lr', str(args.lr)]
     if smoke:
         common_args.append('--smoke')
+
+    if args.redo_early_stopped:
+        # Remove the results of the runs whose log has fewer epochs than requested
+        for path in glob.glob(os.path.join(output_dir, '*.json')):
+            log = os.path.join(output_dir, 'logs', os.path.basename(path)[:-len('.json')] + '.log')
+            with open(log, errors='replace') as f:
+                num_epochs = sum(line.startswith('Epoch') for line in f)
+            if 0 < num_epochs < args.epochs:
+                print(f"Repeating {os.path.basename(path)} (stopped after {num_epochs} epochs)")
+                os.remove(path)
 
     print(f"Data folder:   {data_dir}")
     print(f"Results:       {output_dir}")
