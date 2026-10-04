@@ -74,6 +74,7 @@ generateAndSave("test",testConditions,testRays,testSTAs,APs,cfg,snrs,apPositions
 
 function generateAndSave(setName,conditions,rays,STAs,APs,cfg,snrs,apPositions,baseSeed)
 category_names = {'conference_room';'desk1';'desk2';'desk3';'desk4';'office';'storage'};
+setName = char(setName);
 names = fieldnames(conditions);
 for c = 1:numel(names)
     fileName = ['data_v2_',setName,'_',names{c},'.mat'];
