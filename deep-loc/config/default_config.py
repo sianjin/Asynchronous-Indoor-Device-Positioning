@@ -19,9 +19,9 @@ class DefaultConfig:
     num_workers = 4
     pin_memory = True
 
-    # Position bounds (from data analysis)
-    pos_min = [0.25, 0.25, 0.80]  # [x_min, y_min, z_min]
-    pos_max = [4.75, 7.75, 1.80]  # [x_max, y_max, z_max]
+    # Position bounds (range of valid STA locations in the office)
+    pos_min = [0.1, 0.1, 0.8]  # [x_min, y_min, z_min]
+    pos_max = [4.9, 7.9, 1.8]  # [x_max, y_max, z_max]
 
     # Model architecture - Encoder (Moderate upgrade: 2× wider than baseline)
     # 3-layer CNN with gradual channel increase, same depth as baseline

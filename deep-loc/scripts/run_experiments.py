@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument('--device', type=str, default=None, choices=['cuda', 'mps', 'cpu'],
                        help='Device to use (default: cuda if available, otherwise cpu)')
     parser.add_argument('--threads', type=int, default=None, help='Number of CPU threads')
+    parser.add_argument('--smoke', action='store_true',
+                       help='Quick test of the pipeline: one epoch on a small subset of the data')
 
     return parser.parse_args()
 
@@ -269,6 +271,14 @@ def main():
     torch.manual_seed(args.seed)
 
     split, extra = load_split(args.data_dir, args.train_condition, args.seed, args.input)
+    if args.smoke:
+        # Keep a few samples of every set and train for one epoch
+        num_smoke = 128
+        split = {name: (X[:num_smoke], Y[:num_smoke]) for name, (X, Y) in split.items()}
+        extra['conditions'] = {name: (X[:num_smoke], Y[:num_smoke])
+                               for name, (X, Y) in extra['conditions'].items()}
+        extra['snr'], extra['num_los'] = extra['snr'][:num_smoke], extra['num_los'][:num_smoke]
+        config.num_epochs, config.warmup_epochs = 1, 1
     config.anchor_positions = extra['anchor_positions']
     config.num_anchors = len(extra['anchor_positions'])
     device = torch.device(args.device if args.device is not None
