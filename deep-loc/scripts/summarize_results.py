@@ -1,19 +1,22 @@
 """
 Summarize the results written by run_experiments.py (mean and standard deviation over seeds).
+
+If several result folders are given (e.g. one per learning rate), every
+experiment is taken from the folder in which its mean validation error over
+seeds is lowest.
 """
 
-import os
-import json
-import glob
 import argparse
 import numpy as np
+
+from make_figures import load_runs
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Summarize experiment results over seeds')
-    parser.add_argument('--results_dir', type=str, default='results/camera_ready',
-                       help='Directory with the result .json files')
+    parser.add_argument('--results_dir', type=str, nargs='+', default=['results/camera_ready'],
+                       help='Directories with the result .json files')
     return parser.parse_args()
 
 
@@ -26,18 +29,14 @@ def main():
     """Main summary function."""
     args = parse_args()
 
-    # Group runs by experiment name
-    runs = {}
-    for path in sorted(glob.glob(os.path.join(args.results_dir, '*.json'))):
-        with open(path) as f:
-            result = json.load(f)
-        runs.setdefault(result['name'], []).append(result)
+    # Runs grouped by experiment name, from the best folder on the validation set
+    runs = dict(sorted(load_runs(args.results_dir).items()))
 
-    print(f"{'Experiment':34s} {'Seeds':>5s} {'Params':>10s} {'Mean (m)':>12s} "
+    print(f"{'Experiment':34s} {'Folder':26s} {'Seeds':>5s} {'Params':>10s} {'Mean (m)':>12s} "
           f"{'Median (m)':>12s} {'90th (m)':>12s}")
-    print("-" * 90)
+    print("-" * 117)
     for name, results in runs.items():
-        print(f"{name:34s} {len(results):5d} {results[0]['num_params']:10,d} "
+        print(f"{name:34s} {results[0]['dir']:26s} {len(results):5d} {results[0]['num_params']:10,d} "
               f"{mean_std([r['test_mean_error'] for r in results]):>12s} "
               f"{mean_std([r['test_median_error'] for r in results]):>12s} "
               f"{mean_std([r['test_90th_percentile'] for r in results]):>12s}")

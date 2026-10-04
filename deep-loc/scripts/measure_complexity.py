@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.task_configs import get_config
 from src.models.localization_model import IndoorLocalizationModel
-from src.models.baseline_cnn import EarlyFusionCNN
+from src.models.baseline_cnn import EarlyFusionCNN, EarlyFusionResNet
 
 
 def parse_args():
@@ -104,10 +104,15 @@ def main():
         deepsets_config.use_anchor_position = True
         deepsets_config.anchor_positions = config.anchor_positions
 
+        concat_config = get_config('regression', num_layers=0, pooling='concat')
+        concat_config.num_anchors = num_anchors
+
         models = {
             'Proposed (CNN + Transformer)': IndoorLocalizationModel(config),
             'DeepSets (CNN + mean pool)': IndoorLocalizationModel(deepsets_config),
-            'Early-fusion CNN': EarlyFusionCNN(input_shape=config.input_shape, num_anchors=num_anchors)
+            'Fixed-order fusion': IndoorLocalizationModel(concat_config),
+            'Early-fusion CNN': EarlyFusionCNN(input_shape=config.input_shape, num_anchors=num_anchors),
+            'Early-fusion ResNet': EarlyFusionResNet(num_anchors=num_anchors)
         }
 
         x = torch.randn(1, num_anchors, *config.input_shape)
