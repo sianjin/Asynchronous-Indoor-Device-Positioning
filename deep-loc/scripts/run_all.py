@@ -57,11 +57,23 @@ EXPERIMENTS = [
                                              '--random_phase']),
     ('transformer_appos_complex_randphase_delay', ['--model', 'transformer', '--use_anchor_position',
                                                    '--random_phase', '--random_delay']),
+    ('concat_complex_randphase_delay', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat',
+                                        '--random_phase', '--random_delay']),
+    ('resnet_complex_randphase_delay', ['--model', 'resnet', '--random_phase', '--random_delay']),
+    ('cnn_complex_randphase_delay', ['--model', 'cnn', '--random_phase', '--random_delay']),
 
     # Synchronized control: trained and tested without clock offset and phase noise
     ('transformer_appos_complex_sync', ['--model', 'transformer', '--use_anchor_position',
                                         '--train_condition', 'synchronized']),
 ]
+
+
+# Named groups of experiments for --only
+GROUPS = {
+    'reference': ['transformer_appos_complex_randphase', 'transformer_appos_complex_randphase_delay',
+                  'concat_complex_randphase_delay', 'resnet_complex_randphase_delay',
+                  'cnn_complex_randphase_delay'],
+}
 
 
 def parse_args():
@@ -77,7 +89,7 @@ def parse_args():
                        help='Early stopping patience in epochs (set to the number of epochs to disable)')
     parser.add_argument('--lr', type=float, default=None, help='Learning rate (default: 1e-3)')
     parser.add_argument('--only', type=str, nargs='+', default=None,
-                       help='Run only the experiments with these names')
+                       help='Run only the experiments with these names (or the group "reference")')
     parser.add_argument('--redo_early_stopped', action='store_true',
                        help='Repeat the finished experiments that stopped before the last epoch')
     parser.add_argument('--results_name', type=str, default='camera_ready',
@@ -168,6 +180,7 @@ def main():
     """Main function."""
     args = parse_args()
     if args.only is not None:
+        args.only = [name for item in args.only for name in GROUPS.get(item, [item])]
         unknown = set(args.only) - {name for name, _ in EXPERIMENTS}
         if unknown:
             sys.exit(f"Unknown experiments: {sorted(unknown)}")
