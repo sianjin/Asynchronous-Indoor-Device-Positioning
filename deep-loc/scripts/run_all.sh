@@ -1,18 +1,29 @@
 #!/bin/bash
 # Run the full model comparison on the datasets written by phy/wifiPosGenerateData.m.
 #
-# Usage: bash scripts/run_all.sh [data_dir] [epochs] [seeds]
+# Usage: bash scripts/run_all.sh [data_dir] [epochs] [seeds] [threads]
 #   data_dir: directory with the data_*.mat files (default: current directory)
 #   epochs:   maximum number of epochs per run (default: 60)
 #   seeds:    quoted list of seeds (default: "0 1 2")
+#   threads:  CPU threads per run (default: all cores)
+#
+# To use a many-core machine, start one instance per seed in separate
+# terminals and give each a share of the cores, e.g. on 12 cores:
+#   bash scripts/run_all.sh ../phy 60 "0" 4
+#   bash scripts/run_all.sh ../phy 60 "1" 4
+#   bash scripts/run_all.sh ../phy 60 "2" 4
 #
 # Runs that already have a result file are skipped, so the script can be restarted.
 
 DATA=${1:-.}
 EPOCHS=${2:-60}
 SEEDS=${3:-"0 1 2"}
+THREADS=${4:-}
 OUT=results/camera_ready
 COMMON="--data_dir $DATA --output_dir $OUT --epochs $EPOCHS --warmup_epochs 5 --patience 15"
+if [ -n "$THREADS" ]; then
+    COMMON="$COMMON --threads $THREADS"
+fi
 
 mkdir -p $OUT/logs
 
