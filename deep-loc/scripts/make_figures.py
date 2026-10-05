@@ -48,8 +48,8 @@ def parse_args():
                        default=os.path.join(os.path.dirname(ROOT), 'paper', 'figures'),
                        help='Directory to save the figures')
     parser.add_argument('--table_path', type=str,
-                       default=os.path.join(os.path.dirname(ROOT), 'paper', 'results_table.tex'),
-                       help='Path of the LaTeX result table')
+                       default=os.path.join(ROOT, 'results', 'results_table.tex'),
+                       help='Path of the LaTeX result table (its content is pasted into the paper)')
     parser.add_argument('--map_path', type=str,
                        default=os.path.join(os.path.dirname(ROOT), 'phy', 'office.stl'),
                        help='Path of the office map')
