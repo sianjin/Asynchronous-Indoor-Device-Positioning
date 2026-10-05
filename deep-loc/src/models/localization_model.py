@@ -124,13 +124,17 @@ class IndoorLocalizationModel(nn.Module):
         missing = missing & ~missing.all(dim=1, keepdim=True)
         return missing
 
-    def forward(self, anchor_features, anchor_mask=None):
+    def forward(self, anchor_features, anchor_mask=None, anchor_positions=None):
         """
         Forward pass.
 
         Args:
             anchor_features: (batch, Na, Ntap, 2M) tensor
             anchor_mask: optional (batch, Na) bool tensor, True for anchors to ignore
+            anchor_positions: optional (batch, Na, 3) tensor of AP coordinates
+                normalized to the room dimensions, for data in which the AP
+                layout changes from sample to sample. By default the fixed
+                layout of the configuration is used
 
         Returns:
             (batch, 3) for regression or (batch, num_classes) for classification
@@ -150,7 +154,9 @@ class IndoorLocalizationModel(nn.Module):
         anchor_embeddings = embeddings.reshape(batch_size, Na, -1)
 
         if self.use_anchor_position:
-            anchor_embeddings = anchor_embeddings + self.anchor_pos_embed(self.anchor_pos[:Na])
+            if anchor_positions is None:
+                anchor_positions = self.anchor_pos[:Na]
+            anchor_embeddings = anchor_embeddings + self.anchor_pos_embed(anchor_positions)
 
         # Step 3: Cross-anchor fusion via transformer
         fused_embeddings = self.transformer(anchor_embeddings, key_padding_mask=missing)  # (batch, Na, embed_dim)
@@ -178,7 +184,7 @@ class IndoorLocalizationModel(nn.Module):
 
         return output
 
-    def predict(self, anchor_features, anchor_mask=None):
+    def predict(self, anchor_features, anchor_mask=None, anchor_positions=None):
         """
         Inference mode with no gradient computation.
 
@@ -191,7 +197,7 @@ class IndoorLocalizationModel(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            output = self.forward(anchor_features, anchor_mask)
+            output = self.forward(anchor_features, anchor_mask, anchor_positions)
 
         if self.task == 'classification':
             # Return class predictions

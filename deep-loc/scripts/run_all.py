@@ -6,6 +6,9 @@ Usage (from the deep-loc folder):
     python scripts/run_all.py           Run everything, several experiments in parallel
     python scripts/run_all.py status    Show the progress of a run
 
+Add "--study layouts" to run the multi-layout study on the datasets written by
+phy/wifiPosGenerateDataLayouts.m instead.
+
 The data folder, the device (GPU if available, otherwise CPU) and the number
 of parallel jobs and CPU threads are detected automatically.
 Experiments that already have a result file are skipped, so an interrupted
@@ -68,6 +71,23 @@ EXPERIMENTS = [
 ]
 
 
+# Experiments of the multi-layout study (run_layout_experiments.py): every model
+# with and without the AP coordinates as input
+LAYOUT_EXPERIMENTS = [
+    ('transformer_appos', ['--model', 'transformer', '--use_anchor_position']),
+    ('transformer_nopos', ['--model', 'transformer']),
+    ('concat_appos', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat',
+                      '--use_anchor_position']),
+    ('concat_nopos', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat']),
+    ('resnet_appos', ['--model', 'resnet', '--use_anchor_position']),
+    ('resnet_nopos', ['--model', 'resnet']),
+    ('deepsets_appos', ['--model', 'transformer', '--num_layers', '0', '--use_anchor_position']),
+    ('attnpool_appos', ['--model', 'transformer', '--pooling', 'attention', '--use_anchor_position']),
+    ('cnn_appos', ['--model', 'cnn', '--use_anchor_position']),
+    ('cnn_nopos', ['--model', 'cnn']),
+    ('knn', ['--model', 'knn']),
+]
+
 # Named groups of experiments for --only
 GROUPS = {
     'reference': ['transformer_appos_complex_randphase', 'transformer_appos_complex_randphase_delay',
@@ -76,11 +96,20 @@ GROUPS = {
 }
 
 
+# Script that runs one experiment (set by the study)
+RUNNER = 'run_experiments.py'
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Run the full model comparison')
     parser.add_argument('mode', nargs='?', default='run', choices=['run', 'smoke', 'status'],
                        help='run (default), smoke (quick test) or status (show progress)')
+    parser.add_argument('--study', type=str, default='fixed', choices=['fixed', 'layouts'],
+                       help='fixed: one AP layout (wifiPosGenerateData.m); '
+                            'layouts: many AP layouts (wifiPosGenerateDataLayouts.m)')
+    parser.add_argument('--data_prefix', type=str, default='',
+                       help='Prefix of the data files of the layouts study ("smoke_" for the MATLAB smoke test)')
     parser.add_argument('--data_dir', type=str, default=None,
                        help='Directory with the data_*.mat files (default: detected automatically)')
     parser.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2], help='Seeds to run')
@@ -95,8 +124,9 @@ def parse_args():
                             'sub-sample delay per AP')
     parser.add_argument('--redo_early_stopped', action='store_true',
                        help='Repeat the finished experiments that stopped before the last epoch')
-    parser.add_argument('--results_name', type=str, default='camera_ready',
-                       help='Name of the results folder under results/')
+    parser.add_argument('--results_name', type=str, default=None,
+                       help='Name of the results folder under results/ '
+                            '(default: camera_ready, or layouts for the layouts study)')
     parser.add_argument('--jobs', type=int, default=None,
                        help='Experiments to run in parallel (default: 3)')
     parser.add_argument('--threads', type=int, default=None,
@@ -106,13 +136,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def find_data_dir():
+def find_data_dir(file_name, generator):
     """Find the folder with the generated datasets."""
     for candidate in [ROOT, os.path.join(os.path.dirname(ROOT), 'phy')]:
-        if os.path.isfile(os.path.join(candidate, 'data_train_nominal.mat')):
+        if os.path.isfile(os.path.join(candidate, file_name)):
             return candidate
-    sys.exit("Could not find data_train_nominal.mat in deep-loc or phy. "
-             "Run phy/wifiPosGenerateData.m first, or pass --data_dir.")
+    sys.exit(f"Could not find {file_name} in deep-loc or phy. "
+             f"Run phy/{generator} first, or pass --data_dir.")
 
 
 def num_physical_cores():
@@ -150,7 +180,7 @@ def run_experiment(name, seed, extra_args, common_args, output_dir):
     """Run one experiment unless its result exists. Returns True on success."""
     if os.path.isfile(result_path(output_dir, name, seed)):
         return True
-    command = [sys.executable, os.path.join(ROOT, 'scripts', 'run_experiments.py'),
+    command = [sys.executable, os.path.join(ROOT, 'scripts', RUNNER),
                '--name', name, '--seed', str(seed), '--output_dir', output_dir] + extra_args + common_args
     with open(log_path(output_dir, name, seed), 'w') as log:
         code = subprocess.call(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
@@ -175,13 +205,21 @@ def print_status(output_dir, seeds):
 
 def summarize(output_dir):
     """Print the summary table of all finished experiments."""
-    subprocess.call([sys.executable, os.path.join(ROOT, 'scripts', 'summarize_results.py'),
+    script = 'summarize_layouts.py' if RUNNER == 'run_layout_experiments.py' else 'summarize_results.py'
+    subprocess.call([sys.executable, os.path.join(ROOT, 'scripts', script),
                      '--results_dir', output_dir], cwd=ROOT)
 
 
 def main():
     """Main function."""
+    global RUNNER
     args = parse_args()
+    layouts = args.study == 'layouts'
+    if layouts:
+        RUNNER = 'run_layout_experiments.py'
+        EXPERIMENTS[:] = LAYOUT_EXPERIMENTS
+    if args.results_name is None:
+        args.results_name = 'layouts' if layouts else 'camera_ready'
     if args.only is not None:
         args.only = [name for item in args.only for name in GROUPS.get(item, [item])]
         unknown = set(args.only) - {name for name, _ in EXPERIMENTS}
@@ -199,7 +237,12 @@ def main():
         print_status(output_dir, seeds)
         return
 
-    data_dir = args.data_dir if args.data_dir is not None else find_data_dir()
+    if args.data_dir is not None:
+        data_dir = args.data_dir
+    elif layouts:
+        data_dir = find_data_dir(args.data_prefix + 'data_layouts_train.mat', 'wifiPosGenerateDataLayouts.m')
+    else:
+        data_dir = find_data_dir('data_train_nominal.mat', 'wifiPosGenerateData.m')
     os.makedirs(os.path.join(output_dir, 'logs'), exist_ok=True)
     if smoke:
         # Always repeat the quick test from scratch
@@ -214,7 +257,10 @@ def main():
                    '--device', device]
     if args.lr is not None:
         common_args += ['--lr', str(args.lr)]
-    if args.random_reference:
+    if layouts:
+        # The layouts study always uses the random receiver reference
+        common_args += ['--data_prefix', args.data_prefix]
+    elif args.random_reference:
         common_args += ['--random_phase', '--random_delay']
     if smoke:
         common_args.append('--smoke')

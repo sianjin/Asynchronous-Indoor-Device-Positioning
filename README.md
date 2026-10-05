@@ -107,6 +107,19 @@ Distance error on the test positions, mean ± standard deviation over five seeds
 | Early-fusion CNN, magnitude-only input | 1.78 M | 1.00 ± 0.01 | 0.81 | 1.90 |
 | kNN fingerprinting | – | 1.94 ± 0.06 | 1.64 | 3.87 |
 
+## Multi-layout study (in progress)
+
+To test whether a model generalizes to AP layouts that it was not trained on, `phy/wifiPosGenerateDataLayouts.m` generates many layouts with 3 to 6 APs at random positions (set `smokeTest = true` at the top for a quick test). It writes `data_layouts_train.mat`, `data_layouts_test_unseen.mat` (layouts that are not in the training set) and `data_layouts_test_seen.mat` (training layouts with new device positions).
+
+```bash
+python3 scripts/run_all.py smoke --study layouts
+python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 --results_name layouts_200ep
+python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 --results_name layouts_200ep_lr3e-4 --lr 3e-4
+python3 scripts/summarize_layouts.py --results_dir results/layouts_200ep results/layouts_200ep_lr3e-4
+```
+
+Every model is run with and without the AP coordinates as input (`_appos` / `_nopos`). For the models that depend on the AP order, the APs of every sample are sorted by their coordinates.
+
 ## Limitations
 
 The evaluation uses ray-traced channels and a single AP layout. With one layout, the AP-position embedding identifies the APs; generalization to layouts that are not seen during training is not tested.

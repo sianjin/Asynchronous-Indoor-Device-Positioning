@@ -1,4 +1,4 @@
-function [APs, STAs] = dlPositioningCreateEnvironment(txArraySize, rxArraySize, val, distribution)
+function [APs, STAs] = dlPositioningCreateEnvironment(txArraySize, rxArraySize, val, distribution, antPosAP)
 %dlPositioningCreateEnvironment Generates the AP and STA objects to be used for ray tracing
 %   [APS,STAS] = dlPositioningCreateEnvironment(TXARRAYSIZE,RXARRAYSIZE,RXSEP,DISTRIBUTION)
 %   creates the transmitter site (TXSITE) for M Access Points (APS) with
@@ -11,6 +11,9 @@ function [APs, STAs] = dlPositioningCreateEnvironment(txArraySize, rxArraySize, 
 %
 %   dlPositioningCreateEnvironment(txArraySize, rxArraySize, nSta, 'random')
 %   distributes NSTA randomly within the grid using a uniform distribution.
+%
+%   dlPositioningCreateEnvironment(...,ANTPOSAP) places the APs at the
+%   positions in the 3-by-M matrix ANTPOSAP instead of the room corners.
 
 %   Copyright 2020-2024 The MathWorks, Inc.
 
@@ -38,9 +41,11 @@ dZ = diff(zSTA);
 dims = [dX dY dZ];
 
 % Calculate antenna positions
-antPosAP = [kron(xAP, ones(1, length(yAP))); ...
-          repmat(yAP, 1, length(xAP)); ...
-          zAP*ones(1, length(xAP)*length(yAP))];
+if nargin < 5
+    antPosAP = [kron(xAP, ones(1, length(yAP))); ...
+              repmat(yAP, 1, length(xAP)); ...
+              zAP*ones(1, length(xAP)*length(yAP))];
+end
 
 if distribution=="uniform"
     % Create a uniform grid within the bounded range of valid STA locations

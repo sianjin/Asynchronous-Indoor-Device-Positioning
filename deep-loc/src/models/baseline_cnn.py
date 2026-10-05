@@ -22,7 +22,7 @@ class EarlyFusionCNN(nn.Module):
     """
 
     def __init__(self, input_shape=(48, 32), num_anchors=4, num_filters=256,
-                 num_blocks=4, dropout=0.2, anchor_dropout=0.0):
+                 num_blocks=4, dropout=0.2, anchor_dropout=0.0, use_anchor_position=False):
         """
         Initialize baseline CNN.
 
@@ -33,10 +33,12 @@ class EarlyFusionCNN(nn.Module):
             num_blocks: number of convolution blocks
             dropout: dropout probability before the output layer
             anchor_dropout: probability of zeroing each anchor during training
+            use_anchor_position: append an embedding of the AP coordinates to the features
         """
         super().__init__()
 
         self.anchor_dropout = anchor_dropout
+        self.position_branch = AnchorPositionBranch(num_anchors) if use_anchor_position else None
 
         layers = []
         in_channels = num_anchors
@@ -53,9 +55,10 @@ class EarlyFusionCNN(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(num_filters * height * width, 3)
+        self.fc = nn.Linear(num_filters * height * width
+                            + (self.position_branch.dim if use_anchor_position else 0), 3)
 
-    def forward(self, anchor_features, anchor_mask=None):
+    def forward(self, anchor_features, anchor_mask=None, anchor_positions=None):
         """
         Forward pass.
 
@@ -71,7 +74,42 @@ class EarlyFusionCNN(nn.Module):
 
         x = self.features(anchor_features)
         x = self.dropout(x.flatten(1))
+        if self.position_branch is not None:
+            x = torch.cat([x, self.position_branch(anchor_features, anchor_positions)], dim=1)
         return self.fc(x)
+
+
+class AnchorPositionBranch(nn.Module):
+    """
+    Embedding of the AP coordinates for an early-fusion network.
+
+    The coordinates of all anchors are concatenated in the anchor order
+    together with a flag that marks the anchors that are present, embedded by
+    an MLP and appended to the image features before the output layer.
+    """
+
+    def __init__(self, num_anchors, dim=64):
+        super().__init__()
+
+        self.dim = dim
+        self.mlp = nn.Sequential(
+            nn.Linear(4 * num_anchors, dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(dim, dim),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, anchor_features, anchor_positions):
+        """
+        Args:
+            anchor_features: (batch, Na, Ntap, 2M) tensor; all-zero anchors are absent
+            anchor_positions: (batch, Na, 3) tensor of normalized AP coordinates
+
+        Returns:
+            (batch, dim) tensor
+        """
+        present = (anchor_features.flatten(2).abs().sum(dim=-1) > 0).float().unsqueeze(-1)
+        return self.mlp(torch.cat([anchor_positions * present, present], dim=-1).flatten(1))
 
 
 def remove_anchors(anchor_features, anchor_mask=None, anchor_dropout=0.0):
@@ -122,7 +160,8 @@ class EarlyFusionResNet(nn.Module):
     Output: (batch, 3)
     """
 
-    def __init__(self, num_anchors=4, widths=[32, 64, 128, 256], dropout=0.2):
+    def __init__(self, num_anchors=4, widths=[32, 64, 128, 256], dropout=0.2,
+                 use_anchor_position=False):
         """
         Initialize residual baseline.
 
@@ -130,8 +169,11 @@ class EarlyFusionResNet(nn.Module):
             num_anchors: number of anchors (input channels)
             widths: number of channels of the four stages
             dropout: dropout probability before the output layer
+            use_anchor_position: append an embedding of the AP coordinates to the features
         """
         super().__init__()
+
+        self.position_branch = AnchorPositionBranch(num_anchors) if use_anchor_position else None
 
         layers = [
             nn.Conv2d(num_anchors, widths[0], kernel_size=3, padding=1, bias=False),
@@ -147,9 +189,9 @@ class EarlyFusionResNet(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(in_channels, 3)
+        self.fc = nn.Linear(in_channels + (self.position_branch.dim if use_anchor_position else 0), 3)
 
-    def forward(self, anchor_features, anchor_mask=None):
+    def forward(self, anchor_features, anchor_mask=None, anchor_positions=None):
         """
         Forward pass.
 
@@ -164,6 +206,8 @@ class EarlyFusionResNet(nn.Module):
 
         x = self.features(anchor_features)
         x = self.dropout(x.flatten(1))
+        if self.position_branch is not None:
+            x = torch.cat([x, self.position_branch(anchor_features, anchor_positions)], dim=1)
         return self.fc(x)
 
 
