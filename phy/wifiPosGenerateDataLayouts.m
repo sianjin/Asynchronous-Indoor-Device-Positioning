@@ -2,10 +2,14 @@
 %
 % Every layout has its own number of APs (3 to 6) at random positions at the
 % AP height of the office, and its own random STA positions. Three datasets
-% are written:
+% are written with the nominal impairments:
 %   data_layouts_train.mat        training layouts
 %   data_layouts_test_unseen.mat  layouts that are not in the training set
 %   data_layouts_test_seen.mat    training layouts with new STA positions
+% and the unseen layouts are also written under four other impairment
+% settings, with the same STA positions:
+%   data_layouts_test_unseen_<setting>.mat, <setting> = synchronized,
+%   clockOnly, phaseOnly, severe
 %
 % The CIRs of a layout with fewer than the maximum number of APs are padded
 % with all-zero APs. The loop over STAs runs on a parallel pool when Parallel
@@ -39,8 +43,12 @@ if smokeTest
     filePrefix = "smoke_";
 end
 
-% Nominal impairments (as in wifiPosGenerateData.m)
-impairments = struct("ClockOffsetPPM",40,"CFOJitterStd",2,"PhaseNoiseStd",[0.005 0.02],"MaxSpeed",1.5);
+% Impairment settings (as in wifiPosGenerateData.m)
+nominal      = struct("ClockOffsetPPM",40, "CFOJitterStd",2,"PhaseNoiseStd",[0.005 0.02],"MaxSpeed",1.5);
+synchronized = struct("ClockOffsetPPM",0,  "CFOJitterStd",0,"PhaseNoiseStd",[0 0],       "MaxSpeed",1.5);
+clockOnly    = struct("ClockOffsetPPM",40, "CFOJitterStd",2,"PhaseNoiseStd",[0 0],       "MaxSpeed",1.5);
+phaseOnly    = struct("ClockOffsetPPM",0,  "CFOJitterStd",0,"PhaseNoiseStd",[0.005 0.02],"MaxSpeed",1.5);
+severe       = struct("ClockOffsetPPM",100,"CFOJitterStd",2,"PhaseNoiseStd",[0.02 0.04], "MaxSpeed",1.5);
 
 % Draw all layouts first, so that the seen test uses the training layouts
 S = RandStream("mt19937ar","Seed",5489);
@@ -71,20 +79,30 @@ cfg = heRangingConfig('ChannelBandwidth',chanBW, ...
 cfg.User{1}.NumSpaceTimeStreams = prod(txArraySize);
 
 setup = struct("txArraySize",txArraySize,"rxArraySize",rxArraySize,"snrs",snrs, ...
-    "impairments",impairments,"maxNumAPs",numAPsRange(2),"mapFileName",mapFileName);
+    "maxNumAPs",numAPsRange(2),"mapFileName",mapFileName);
 
-% Generate and save datasets. Every dataset has its own seeds
-generateAndSave(filePrefix+"data_layouts_train.mat",layouts,trainIdx,numSTAsPerLayout,1e5,pm,cfg,setup);
-generateAndSave(filePrefix+"data_layouts_test_unseen.mat",layouts,testIdx,numSTAsPerLayout,2e5,pm,cfg,setup);
-generateAndSave(filePrefix+"data_layouts_test_seen.mat",layouts,seenIdx,numSTAsSeenLayout,3e5,pm,cfg,setup);
+% Generate and save datasets. Every dataset has its own seeds. The files of
+% one call share the layouts, the STA positions and the ray tracing
+generateAndSave(filePrefix+"data_layouts_train.mat",{nominal}, ...
+    layouts,trainIdx,numSTAsPerLayout,1e5,pm,cfg,setup);
+generateAndSave(filePrefix+"data_layouts_test_seen.mat",{nominal}, ...
+    layouts,seenIdx,numSTAsSeenLayout,3e5,pm,cfg,setup);
+generateAndSave(filePrefix+"data_layouts_test_unseen"+["","_synchronized","_clockOnly","_phaseOnly","_severe"]+".mat", ...
+    {nominal,synchronized,clockOnly,phaseOnly,severe}, ...
+    layouts,testIdx,numSTAsPerLayout,2e5,pm,cfg,setup);
 
-function generateAndSave(fileName,layouts,layoutIdx,numSTAs,baseSeed,pm,cfg,setup)
-fileName = char(fileName);
-if isfile(fileName)
-    disp(['Skipping ',fileName,' (already exists)'])
+function generateAndSave(fileNames,conditions,layouts,layoutIdx,numSTAs,baseSeed,pm,cfg,setup)
+% Generate one dataset per impairment setting in CONDITIONS and save it under
+% the corresponding name in FILENAMES. Files that already exist are skipped.
+fileNames = cellstr(fileNames);
+todo = find(~cellfun(@isfile,fileNames));
+for c = setdiff(1:numel(fileNames),todo)
+    disp(['Skipping ',fileNames{c},' (already exists)'])
+end
+if isempty(todo)
     return
 end
-disp(['Generating ',fileName,' (',num2str(numel(layoutIdx)),' layouts)...'])
+disp(['Generating ',strjoin(fileNames(todo),', '),' (',num2str(numel(layoutIdx)),' layouts)...'])
 tStart = tic;
 
 maxNumAPs = setup.maxNumAPs;
@@ -92,7 +110,7 @@ numSNRs = numel(setup.snrs);
 samplesPerLayout = numSTAs*numSNRs;
 numSamples = numel(layoutIdx)*samplesPerLayout;
 
-X = [];
+% Labels that are the same for all impairment settings
 position = zeros(3,numSamples);
 snr = zeros(1,numSamples);
 layout = zeros(1,numSamples);
@@ -100,7 +118,13 @@ numAPs = zeros(1,numSamples);
 apPositions = zeros(3,maxNumAPs,numSamples);
 present = false(maxNumAPs,numSamples);
 los = false(maxNumAPs,numSamples);
-detected = false(maxNumAPs,numSamples);
+
+% Outputs that depend on the impairment setting
+X = cell(1,numel(fileNames));
+detected = cell(1,numel(fileNames));
+for c = todo
+    detected{c} = false(maxNumAPs,numSamples);
+end
 
 for k = 1:numel(layoutIdx)
     apPos = layouts{layoutIdx(k)};
@@ -110,15 +134,20 @@ for k = 1:numel(layoutIdx)
     RandStream.setGlobalStream(RandStream("mt19937ar","Seed",baseSeed+k));
     [APs,STAs] = dlPositioningCreateEnvironment(setup.txArraySize,setup.rxArraySize,numSTAs,"random",apPos);
 
-    % Ray tracing and packet simulation for all APs and STAs of the layout
+    % Ray tracing for all APs and STAs of the layout
     rays = raytrace(APs,STAs,pm,"Map",setup.mapFileName);
-    [cir,labels] = dlPositioningGenerateDataSet(rays,STAs,APs,cfg,setup.snrs,setup.impairments,baseSeed+k);
-
-    if isempty(X)
-        X = zeros([size(cir,1) size(cir,2) maxNumAPs numSamples],'single');
-    end
     idx = (k-1)*samplesPerLayout+(1:samplesPerLayout);
-    X(:,:,1:M,idx) = cir;
+
+    % Packet simulation under every impairment setting
+    for c = todo
+        [cir,labels] = dlPositioningGenerateDataSet(rays,STAs,APs,cfg,setup.snrs,conditions{c},baseSeed+k);
+        if isempty(X{c})
+            X{c} = zeros([size(cir,1) size(cir,2) maxNumAPs numSamples],'single');
+        end
+        X{c}(:,:,1:M,idx) = cir;
+        detected{c}(1:M,idx) = labels.detected;
+    end
+
     position(:,idx) = labels.position;
     snr(idx) = labels.snr;
     layout(idx) = layoutIdx(k);
@@ -126,7 +155,6 @@ for k = 1:numel(layoutIdx)
     apPositions(:,1:M,idx) = repmat(apPos,1,1,samplesPerLayout);
     present(1:M,idx) = true;
     los(1:M,idx) = labels.los;
-    detected(1:M,idx) = labels.detected;
 
     if mod(k,ceil(numel(layoutIdx)/20))==0
         disp(['  layout ',num2str(k),' of ',num2str(numel(layoutIdx)),' done, ', ...
@@ -134,8 +162,14 @@ for k = 1:numel(layoutIdx)
     end
 end
 
-impairments = setup.impairments;
+for c = todo
+    saveDataSet(fileNames{c},X{c},position,snr,layout,numAPs,apPositions,present,los,detected{c},conditions{c});
+    disp(['Saved ',fileNames{c}])
+end
+disp(['Done in ',num2str(round(toc(tStart)/60,1)),' minutes.'])
+end
+
+function saveDataSet(fileName,X,position,snr,layout,numAPs,apPositions,present,los,detected,impairments) %#ok<INUSD>
 save(fileName,'X','position','snr','layout','numAPs','apPositions','present','los','detected', ...
     'impairments','-v7')
-disp(['Saved ',fileName,' in ',num2str(round(toc(tStart)/60,1)),' minutes.'])
 end

@@ -9,6 +9,9 @@ layouts is kept, and it is evaluated on
   - unseen layouts: AP layouts that are not in the training set, and
   - seen layouts:   training layouts with new device positions.
 
+If files with the unseen layouts under other impairment settings are present
+(data_layouts_test_unseen_<setting>.mat), the model is evaluated on them too.
+
 All models share the same split, optimizer, schedule and random receiver
 reference (random sub-sample delay and phase per AP).
 """
@@ -16,6 +19,7 @@ reference (random sub-sample delay and phase per AP).
 import os
 import sys
 import json
+import glob
 import time
 import argparse
 import numpy as np
@@ -81,7 +85,7 @@ def load_layout_file(path):
     Returns:
         dict of numpy arrays with one entry per sample:
             X (N, Na, Ntap, 2M), Y (N, 3), P (N, Na, 3) AP coordinates in meters,
-            layout (N,), num_aps (N,), snr (N,)
+            layout (N,), num_aps (N,), num_los (N,), snr (N,)
         Absent and undetected APs are all-zero in X. The APs of every sample are
         sorted by their x and then y coordinate, with absent APs last, so that
         models that depend on the AP order see a consistent order.
@@ -101,6 +105,7 @@ def load_layout_file(path):
         'Y': data['position'].T.astype(np.float32),
         'layout': data['layout'].reshape(-1).astype(np.int64),
         'num_aps': data['numAPs'].reshape(-1).astype(np.int64),
+        'num_los': data['los'].astype(bool).sum(axis=0).astype(np.int64),
         'snr': data['snr'].reshape(-1)
     }
 
@@ -111,13 +116,20 @@ def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15, m
 
     Returns:
         dict: set name -> dict of tensors X, Y, P (normalized AP coordinates),
-            num_aps, num_detected. Samples without a detected AP are removed.
+            num_aps, num_detected, num_los, snr, layout. Samples without a detected
+            AP are removed. Besides 'train', 'val', 'test_unseen' and 'test_seen',
+            there is one set 'condition_<setting>' for every file with the unseen
+            layouts under another impairment setting.
     """
     train = load_layout_file(os.path.join(data_dir, f'{prefix}data_layouts_train.mat'))
     sets = {
         'test_unseen': load_layout_file(os.path.join(data_dir, f'{prefix}data_layouts_test_unseen.mat')),
         'test_seen': load_layout_file(os.path.join(data_dir, f'{prefix}data_layouts_test_seen.mat'))
     }
+
+    condition_prefix = os.path.join(data_dir, f'{prefix}data_layouts_test_unseen_')
+    for path in sorted(glob.glob(condition_prefix + '*.mat')):
+        sets['condition_' + path[len(condition_prefix):-len('.mat')]] = load_layout_file(path)
 
     # Validation layouts are held out from the training layouts, so the model
     # selection also targets layouts that are not trained on
@@ -145,7 +157,9 @@ def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15, m
             'P': (torch.from_numpy(d['P'][keep]) - pos_min) / (pos_max - pos_min),
             'num_aps': torch.from_numpy(d['num_aps'][keep]),
             'num_detected': torch.from_numpy(detected[keep].sum(axis=1)),
+            'num_los': torch.from_numpy(d['num_los'][keep]),
             'snr': torch.from_numpy(d['snr'][keep].astype(np.int64)),
+            'layout': torch.from_numpy(d['layout'][keep]),
             'num_layouts': len(np.unique(d['layout']))
         }
     return split
@@ -253,7 +267,9 @@ def summarize(errors, d):
         'error_by_num_detected': {str(int(n)): errors[d['num_detected'] == n].mean().item()
                                   for n in torch.unique(d['num_detected'])},
         'error_by_snr': {str(int(n)): errors[d['snr'] == n].mean().item()
-                         for n in torch.unique(d['snr'])}
+                         for n in torch.unique(d['snr'])},
+        'error_by_num_los': {str(int(n)): errors[d['num_los'] == n].mean().item()
+                             for n in torch.unique(d['num_los'])}
     }
     return stats
 
@@ -302,7 +318,8 @@ def main():
     # For magnitude-only input, the magnitude is taken after the random reference
     magnitude = args.input == 'magnitude'
     generator = torch.Generator(device=device).manual_seed(12345)
-    for name in ['val', 'test_unseen', 'test_seen'] + (['train'] if args.model == 'knn' else []):
+    conditions = [name for name in split if name.startswith('condition_')]
+    for name in ['val', 'test_unseen', 'test_seen'] + conditions + (['train'] if args.model == 'knn' else []):
         X = randomize_reference(split[name]['X'], True, True, generator)
         split[name]['X'] = to_magnitude(X) if magnitude else X
 
@@ -322,13 +339,14 @@ def main():
               'num_train': len(split['train']['X']), 'num_val': len(split['val']['X'])}
     start = time.time()
     test_sets = ['test_unseen', 'test_seen']
+    eval_sets = test_sets + conditions
 
     if args.model == 'knn':
         val_errors = {k: torch.sqrt(((knn_predict(split, 'val', k) - split['val']['Y']) ** 2).sum(-1)).mean().item()
                       for k in [1, 3, 5, 7, 9]}
         best_k = min(val_errors, key=val_errors.get)
         errors = {name: torch.sqrt(((knn_predict(split, name, best_k) - split[name]['Y']) ** 2).sum(-1))
-                  for name in test_sets}
+                  for name in eval_sets}
         result.update({'val_error': val_errors[best_k], 'k': best_k, 'num_params': 0})
     else:
         model = build_model(args, config).to(device)
@@ -338,19 +356,24 @@ def main():
             result['num_params'] -= sum(p.numel() for p in model.classification_head.parameters())
         val_error, best_epoch = train(model, split, config, pos_min, pos_max, magnitude)
         errors = {name: distance_error(predict(model, split[name]), split[name]['Y'], pos_min, pos_max)
-                  for name in test_sets}
+                  for name in eval_sets}
         result.update({'val_error': val_error, 'best_epoch': best_epoch})
 
     for name in test_sets:
         result[name] = summarize(errors[name], split[name])
+    # Unseen layouts under every impairment setting (the training setting is nominal)
+    result['error_by_condition'] = {'nominal': result['test_unseen']['mean_error']}
+    result['error_by_condition'].update({name[len('condition_'):]: errors[name].mean().item()
+                                         for name in conditions})
     result['train_time_s'] = time.time() - start
 
     os.makedirs(args.output_dir, exist_ok=True)
     path = os.path.join(args.output_dir, f"{args.name}_seed{args.seed}")
     with open(path + '.json', 'w') as f:
         json.dump(result, f, indent=2)
-    np.savez(path + '.npz', **{f'errors_{name}': errors[name].cpu().numpy() for name in test_sets},
-             **{f'num_aps_{name}': split[name]['num_aps'].cpu().numpy() for name in test_sets})
+    np.savez(path + '.npz', **{f'{key}_{name}': split[name][key].cpu().numpy()
+                               for name in test_sets for key in ['Y', 'layout', 'num_aps', 'num_los']},
+             **{f'errors_{name}': errors[name].cpu().numpy() for name in test_sets})
 
     print(json.dumps(result, indent=2))
 

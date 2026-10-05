@@ -45,7 +45,8 @@ def main():
     for test_set, title in [('test_unseen', 'unseen layouts'), ('test_seen', 'seen layouts')]:
         for key, column_title in [('median_error', None), ('error_by_num_aps', 'number of APs of the layout'),
                                   ('error_by_num_detected', 'number of detected APs'),
-                                  ('error_by_snr', 'SNR (dB)')]:
+                                  ('error_by_snr', 'SNR (dB)'),
+                                  ('error_by_num_los', 'number of line-of-sight APs')]:
             if column_title is None:
                 continue
             columns = sorted({c for results in runs.values() for r in results for c in r[test_set][key]}, key=int)
@@ -56,6 +57,19 @@ def main():
                 print(f"{name:22s} " + " ".join(
                     f"{mean_std([r[test_set][key][c] for r in results if c in r[test_set][key]]):>14s}"
                     if any(c in r[test_set][key] for r in results) else f"{'-':>14s}" for c in columns))
+
+
+    # Unseen layouts under the impairment settings of the test data
+    rows = {name: results for name, results in runs.items() if 'error_by_condition' in results[0]}
+    columns = sorted({c for results in rows.values() for r in results for c in r['error_by_condition']})
+    if len(columns) > 1:
+        print("\nMean test error (m) on unseen layouts by test impairment setting")
+        print(f"{'Experiment':22s} " + " ".join(f"{c:>14s}" for c in columns))
+        print("-" * (23 + 15 * len(columns)))
+        for name, results in rows.items():
+            print(f"{name:22s} " + " ".join(
+                f"{mean_std([r['error_by_condition'][c] for r in results if c in r['error_by_condition']]):>14s}"
+                for c in columns))
 
 
 if __name__ == '__main__':
