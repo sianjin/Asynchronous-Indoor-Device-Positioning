@@ -80,6 +80,7 @@ LAYOUT_EXPERIMENTS = [
                       '--use_anchor_position']),
     ('concat_nopos', ['--model', 'transformer', '--num_layers', '0', '--pooling', 'concat']),
     ('resnet_appos', ['--model', 'resnet', '--use_anchor_position']),
+    ('resnet_appos_input', ['--model', 'resnet', '--use_anchor_position', '--position_at_input']),
     ('resnet_nopos', ['--model', 'resnet']),
     ('deepsets_appos', ['--model', 'transformer', '--num_layers', '0', '--use_anchor_position']),
     ('attnpool_appos', ['--model', 'transformer', '--pooling', 'attention', '--use_anchor_position']),

@@ -161,7 +161,7 @@ class EarlyFusionResNet(nn.Module):
     """
 
     def __init__(self, num_anchors=4, widths=[32, 64, 128, 256], dropout=0.2,
-                 use_anchor_position=False):
+                 use_anchor_position=False, position_at_input=False):
         """
         Initialize residual baseline.
 
@@ -170,13 +170,19 @@ class EarlyFusionResNet(nn.Module):
             widths: number of channels of the four stages
             dropout: dropout probability before the output layer
             use_anchor_position: append an embedding of the AP coordinates to the features
+            position_at_input: instead of appending an embedding at the output, give
+                the AP coordinates to the first layer as constant input planes
+                (three per anchor), so that all layers can use them
         """
         super().__init__()
 
-        self.position_branch = AnchorPositionBranch(num_anchors) if use_anchor_position else None
+        self.position_at_input = use_anchor_position and position_at_input
+        self.position_branch = AnchorPositionBranch(num_anchors) \
+            if use_anchor_position and not position_at_input else None
 
         layers = [
-            nn.Conv2d(num_anchors, widths[0], kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(num_anchors * (4 if self.position_at_input else 1), widths[0],
+                      kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(widths[0]),
             nn.ReLU(inplace=True)
         ]
@@ -189,7 +195,7 @@ class EarlyFusionResNet(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(in_channels + (self.position_branch.dim if use_anchor_position else 0), 3)
+        self.fc = nn.Linear(in_channels + (self.position_branch.dim if self.position_branch else 0), 3)
 
     def forward(self, anchor_features, anchor_mask=None, anchor_positions=None):
         """
@@ -204,7 +210,14 @@ class EarlyFusionResNet(nn.Module):
         """
         anchor_features = remove_anchors(anchor_features, anchor_mask)
 
-        x = self.features(anchor_features)
+        x = anchor_features
+        if self.position_at_input:
+            # Coordinates of the present anchors as constant planes next to the CIRs
+            present = (anchor_features.flatten(2).abs().sum(dim=-1) > 0).float().unsqueeze(-1)
+            planes = (anchor_positions * present).flatten(1)[:, :, None, None]
+            x = torch.cat([x, planes.expand(-1, -1, *x.shape[2:])], dim=1)
+
+        x = self.features(x)
         x = self.dropout(x.flatten(1))
         if self.position_branch is not None:
             x = torch.cat([x, self.position_branch(anchor_features, anchor_positions)], dim=1)

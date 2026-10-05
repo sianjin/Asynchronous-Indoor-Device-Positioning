@@ -53,6 +53,8 @@ def parse_args():
     parser.add_argument('--pooling', type=str, default=None, choices=['mean', 'attention', 'concat'])
     parser.add_argument('--use_anchor_position', action='store_true',
                        help='Give the model the AP coordinates of every sample')
+    parser.add_argument('--position_at_input', action='store_true',
+                       help='ResNet only: give the AP coordinates to the first layer as input planes')
 
     # Training
     parser.add_argument('--epochs', type=int, default=None)
@@ -147,7 +149,8 @@ def build_model(args, config):
                               use_anchor_position=args.use_anchor_position)
     if args.model == 'resnet':
         return EarlyFusionResNet(num_anchors=config.num_anchors,
-                                 use_anchor_position=args.use_anchor_position)
+                                 use_anchor_position=args.use_anchor_position,
+                                 position_at_input=args.position_at_input)
     return IndoorLocalizationModel(config)
 
 
