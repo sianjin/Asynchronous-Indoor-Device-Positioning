@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.task_configs import get_config
 from src.models.localization_model import IndoorLocalizationModel
 from src.models.baseline_cnn import EarlyFusionCNN, EarlyFusionResNet
-from run_experiments import randomize_reference
+from run_experiments import randomize_reference, to_magnitude
 
 
 def parse_args():
@@ -39,6 +39,10 @@ def parse_args():
     parser.add_argument('--name', type=str, required=True, help='Experiment name')
     parser.add_argument('--model', type=str, default='transformer',
                        choices=['transformer', 'cnn', 'resnet', 'knn'], help='Model type')
+    parser.add_argument('--input', type=str, default='complex',
+                       choices=['complex', 'magnitude'], help='Input representation')
+    parser.add_argument('--max_train_layouts', type=int, default=None,
+                       help='Train on at most this many layouts (default: all training layouts)')
     parser.add_argument('--seed', type=int, default=0, help='Seed for the split and the training')
     parser.add_argument('--data_dir', type=str, default='.',
                        help='Directory with the data_layouts_*.mat files')
@@ -101,7 +105,7 @@ def load_layout_file(path):
     }
 
 
-def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15):
+def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15, max_train_layouts=None):
     """
     Load the datasets and split the training layouts into training and validation.
 
@@ -121,7 +125,11 @@ def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15):
     order = np.random.RandomState(seed).permutation(len(layouts))
     val_layouts = layouts[order[:max(1, int(round(val_frac * len(layouts))))]]
     is_val = np.isin(train['layout'], val_layouts)
-    sets['train'] = {k: v[~is_val] for k, v in train.items()}
+    train_layouts = layouts[order[len(val_layouts):]]
+    if max_train_layouts is not None:
+        train_layouts = train_layouts[:max_train_layouts]
+    is_train = np.isin(train['layout'], train_layouts)
+    sets['train'] = {k: v[is_train] for k, v in train.items()}
     sets['val'] = {k: v[is_val] for k, v in train.items()}
 
     X_train = sets['train']['X']
@@ -170,7 +178,7 @@ def distance_error(pred_norm, target, pos_min, pos_max):
     return torch.sqrt(((pred - target) ** 2).sum(dim=-1))
 
 
-def train(model, split, config, pos_min, pos_max):
+def train(model, split, config, pos_min, pos_max, magnitude=False):
     """Train with warmup + cosine schedule; keep the best checkpoint on the validation layouts."""
     X_train, Y_train, P_train = split['train']['X'], split['train']['Y'], split['train']['P']
     target_train = (Y_train - pos_min) / (pos_max - pos_min)
@@ -195,6 +203,8 @@ def train(model, split, config, pos_min, pos_max):
             optimizer.zero_grad()
             # A new phase and timing reference is drawn every time a sample is used
             batch = randomize_reference(X_train[idx], True, True)
+            if magnitude:
+                batch = to_magnitude(batch)
             loss = criterion(model(batch, None, P_train[idx]), target_train[idx])
             loss.backward()
             optimizer.step()
@@ -272,7 +282,8 @@ def main():
     pos_min = torch.tensor(config.pos_min)
     pos_max = torch.tensor(config.pos_max)
 
-    split = load_layout_split(args.data_dir, args.data_prefix, args.seed, pos_min, pos_max)
+    split = load_layout_split(args.data_dir, args.data_prefix, args.seed, pos_min, pos_max,
+                              max_train_layouts=args.max_train_layouts)
     if args.smoke:
         # Keep a few samples of every set and train for one epoch
         split = {name: {k: (v[:128] if torch.is_tensor(v) else v) for k, v in d.items()}
@@ -285,12 +296,15 @@ def main():
     # Validation and test sets get one fixed random reference per AP and sample.
     # The training set gets a new one every time a sample is used (see train),
     # except for kNN, which has no training loop
+    # For magnitude-only input, the magnitude is taken after the random reference
+    magnitude = args.input == 'magnitude'
     generator = torch.Generator(device=device).manual_seed(12345)
     for name in ['val', 'test_unseen', 'test_seen'] + (['train'] if args.model == 'knn' else []):
-        split[name]['X'] = randomize_reference(split[name]['X'], True, True, generator)
+        X = randomize_reference(split[name]['X'], True, True, generator)
+        split[name]['X'] = to_magnitude(X) if magnitude else X
 
     config.num_anchors = split['train']['X'].shape[1]
-    config.input_shape = tuple(split['train']['X'].shape[2:])
+    config.input_shape = tuple(split['val']['X'].shape[2:])
     # The fixed layout of the configuration is not used: positions are given per sample
     config.anchor_positions = [[0.0, 0.0, 0.0]] * config.num_anchors
     print(f"{args.name}: train {len(split['train']['X'])} samples in {split['train']['num_layouts']} layouts, "
@@ -299,7 +313,8 @@ def main():
           f"seen test {len(split['test_seen']['X'])} in {split['test_seen']['num_layouts']}, "
           f"up to {config.num_anchors} APs")
 
-    result = {'name': args.name, 'model': args.model, 'seed': args.seed,
+    result = {'name': args.name, 'model': args.model, 'input': args.input, 'seed': args.seed,
+              'num_train_layouts': split['train']['num_layouts'],
               'use_anchor_position': args.use_anchor_position,
               'num_train': len(split['train']['X']), 'num_val': len(split['val']['X'])}
     start = time.time()
@@ -318,7 +333,7 @@ def main():
         if args.model == 'transformer':
             # The unused classification head is not part of the regression model
             result['num_params'] -= sum(p.numel() for p in model.classification_head.parameters())
-        val_error, best_epoch = train(model, split, config, pos_min, pos_max)
+        val_error, best_epoch = train(model, split, config, pos_min, pos_max, magnitude)
         errors = {name: distance_error(predict(model, split[name]), split[name]['Y'], pos_min, pos_max)
                   for name in test_sets}
         result.update({'val_error': val_error, 'best_epoch': best_epoch})

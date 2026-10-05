@@ -87,6 +87,14 @@ LAYOUT_EXPERIMENTS = [
     ('cnn_appos', ['--model', 'cnn', '--use_anchor_position']),
     ('cnn_nopos', ['--model', 'cnn']),
     ('knn', ['--model', 'knn']),
+
+    # Proposed model with magnitude-only input, and trained on fewer layouts
+    ('transformer_appos_magnitude', ['--model', 'transformer', '--use_anchor_position',
+                                     '--input', 'magnitude']),
+    ('transformer_appos_layouts100', ['--model', 'transformer', '--use_anchor_position',
+                                      '--max_train_layouts', '100']),
+    ('transformer_appos_layouts200', ['--model', 'transformer', '--use_anchor_position',
+                                      '--max_train_layouts', '200']),
 ]
 
 # Named groups of experiments for --only
