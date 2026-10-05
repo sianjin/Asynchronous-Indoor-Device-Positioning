@@ -145,6 +145,7 @@ def load_layout_split(data_dir, prefix, seed, pos_min, pos_max, val_frac=0.15, m
             'P': (torch.from_numpy(d['P'][keep]) - pos_min) / (pos_max - pos_min),
             'num_aps': torch.from_numpy(d['num_aps'][keep]),
             'num_detected': torch.from_numpy(detected[keep].sum(axis=1)),
+            'snr': torch.from_numpy(d['snr'][keep].astype(np.int64)),
             'num_layouts': len(np.unique(d['layout']))
         }
     return split
@@ -250,7 +251,9 @@ def summarize(errors, d):
         'error_by_num_aps': {str(int(n)): errors[d['num_aps'] == n].mean().item()
                              for n in torch.unique(d['num_aps'])},
         'error_by_num_detected': {str(int(n)): errors[d['num_detected'] == n].mean().item()
-                                  for n in torch.unique(d['num_detected'])}
+                                  for n in torch.unique(d['num_detected'])},
+        'error_by_snr': {str(int(n)): errors[d['snr'] == n].mean().item()
+                         for n in torch.unique(d['snr'])}
     }
     return stats
 

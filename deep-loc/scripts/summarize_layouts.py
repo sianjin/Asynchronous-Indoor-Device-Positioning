@@ -44,7 +44,8 @@ def main():
 
     for test_set, title in [('test_unseen', 'unseen layouts'), ('test_seen', 'seen layouts')]:
         for key, column_title in [('median_error', None), ('error_by_num_aps', 'number of APs of the layout'),
-                                  ('error_by_num_detected', 'number of detected APs')]:
+                                  ('error_by_num_detected', 'number of detected APs'),
+                                  ('error_by_snr', 'SNR (dB)')]:
             if column_title is None:
                 continue
             columns = sorted({c for results in runs.values() for r in results for c in r[test_set][key]}, key=int)
