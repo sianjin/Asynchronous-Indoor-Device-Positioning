@@ -122,22 +122,24 @@ Every model is run with and without the AP coordinates as input (`_appos` / `_no
 
 Mean distance error (m), mean ± standard deviation over five seeds. A constant estimate at the room center has an error of 2.54 m.
 
-| Model | AP positions | Unseen layouts | Seen layouts |
+| Model | AP positions | Unseen layouts | Training layouts, new device positions |
 |---|---|---|---|
-| Proposed | yes | 0.85 ± 0.01 | 0.77 ± 0.01 |
-| Proposed, 200 training layouts | yes | 1.23 ± 0.04 | 1.11 ± 0.03 |
-| Proposed, 100 training layouts | yes | 1.58 ± 0.04 | 1.44 ± 0.04 |
-| Proposed, magnitude-only input | yes | 0.88 ± 0.01 | 0.82 ± 0.01 |
-| Set pooling (no Transformer) | yes | 1.55 ± 0.01 | 1.38 ± 0.02 |
-| Fixed-order fusion | yes | 1.49 ± 0.04 | 1.30 ± 0.04 |
-| Early-fusion ResNet | yes | 2.05 ± 0.09 | 1.75 ± 0.10 |
-| Early-fusion CNN | yes | 2.32 ± 0.01 | 2.10 ± 0.02 |
-| Proposed | no | 2.13 ± 0.03 | 2.00 ± 0.03 |
-| Fixed-order fusion | no | 2.06 ± 0.03 | 1.92 ± 0.04 |
-| Early-fusion ResNet | no | 2.27 ± 0.04 | 2.16 ± 0.03 |
-| Early-fusion CNN | no | 2.34 ± 0.01 | 2.22 ± 0.02 |
-| kNN fingerprinting | no | 2.64 ± 0.01 | 2.70 ± 0.02 |
+| Proposed | yes | 0.85 ± 0.01 | 0.77 ± 0.02 |
+| Proposed, 200 training layouts | yes | 1.23 ± 0.04 | 1.04 ± 0.08 |
+| Proposed, 100 training layouts | yes | 1.58 ± 0.04 | 1.33 ± 0.11 |
+| Proposed, magnitude-only input | yes | 0.88 ± 0.01 | 0.83 ± 0.01 |
+| Set pooling (no Transformer) | yes | 1.55 ± 0.01 | 1.37 ± 0.02 |
+| Fixed-order fusion | yes | 1.49 ± 0.04 | 1.29 ± 0.04 |
+| Early-fusion ResNet | yes | 2.05 ± 0.09 | 1.74 ± 0.09 |
+| Early-fusion CNN | yes | 2.32 ± 0.01 | 2.10 ± 0.03 |
+| Proposed | no | 2.13 ± 0.03 | 2.00 ± 0.06 |
+| Fixed-order fusion | no | 2.06 ± 0.03 | 1.92 ± 0.06 |
+| Early-fusion ResNet | no | 2.27 ± 0.04 | 2.17 ± 0.03 |
+| Early-fusion CNN | no | 2.34 ± 0.01 | 2.23 ± 0.02 |
+| kNN fingerprinting | no | 2.64 ± 0.01 | 2.71 ± 0.03 |
+
+The last column counts only the layouts that are in the training set of a run. `data_layouts_test_seen.mat` holds new device positions in 60 of the 500 layouts; the layouts that a run holds out for validation, or leaves out when it trains on fewer layouts, are excluded.
 
 ## Limitations
 
-The evaluation uses ray-traced channels of one room. The error on unseen AP layouts is still decreasing with the number of training layouts, and the benefit of complex over magnitude-only input is small there.
+The evaluation uses ray-traced channels of one room and layouts with three to six APs. The error on unseen AP layouts continues to improve with the size of the training set, and the benefit of complex over magnitude-only input is small there (0.03 m).

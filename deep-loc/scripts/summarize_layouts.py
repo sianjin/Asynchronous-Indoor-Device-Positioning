@@ -10,7 +10,7 @@ seeds is lowest.
 import argparse
 import numpy as np
 
-from make_figures import load_runs
+from make_figures import load_runs, seen_layout_error
 
 
 def parse_args():
@@ -34,13 +34,13 @@ def main():
     runs = dict(sorted(load_runs(args.results_dir).items()))
 
     print(f"{'Experiment':22s} {'Folder':24s} {'Seeds':>5s} {'Params':>10s} {'Validation':>12s} "
-          f"{'Unseen layouts':>15s} {'Seen layouts':>13s}   (mean error, m)")
+          f"{'Unseen layouts':>15s} {'Seen layouts':>13s}   (mean error, m; seen = trained layouts only)")
     print("-" * 122)
     for name, results in runs.items():
         print(f"{name:22s} {results[0]['dir']:24s} {len(results):5d} {results[0]['num_params']:10,d} "
               f"{mean_std([r['val_error'] for r in results]):>12s} "
               f"{mean_std([r['test_unseen']['mean_error'] for r in results]):>15s} "
-              f"{mean_std([r['test_seen']['mean_error'] for r in results]):>13s}")
+              f"{'%.2f ± %.2f' % seen_layout_error(results):>13s}")
 
     for test_set, title in [('test_unseen', 'unseen layouts'), ('test_seen', 'seen layouts')]:
         for key, column_title in [('median_error', None), ('error_by_num_aps', 'number of APs of the layout'),

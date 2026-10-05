@@ -7,7 +7,9 @@ training layouts, the checkpoint with the lowest error on held-out training
 layouts is kept, and it is evaluated on
 
   - unseen layouts: AP layouts that are not in the training set, and
-  - seen layouts:   training layouts with new device positions.
+  - seen layouts:   training layouts with new device positions. Only the
+                    layouts that are in the training set of the run are counted;
+                    the layouts held out for validation are reported separately.
 
 If files with the unseen layouts under other impairment settings are present
 (data_layouts_test_unseen_<setting>.mat), the model is evaluated on them too.
@@ -359,8 +361,16 @@ def main():
                   for name in eval_sets}
         result.update({'val_error': val_error, 'best_epoch': best_epoch})
 
+    # Of the layouts with new device positions, only those in the training set of
+    # this run are seen layouts; the others were held out for validation or dropped
+    trained = torch.isin(split['test_seen']['layout'], torch.unique(split['train']['layout']))
     for name in test_sets:
-        result[name] = summarize(errors[name], split[name])
+        keep = trained if name == 'test_seen' else torch.ones_like(errors[name], dtype=torch.bool)
+        result[name] = summarize(errors[name][keep], {k: (v[keep] if torch.is_tensor(v) else v)
+                                                      for k, v in split[name].items()})
+    result['test_seen']['num_layouts'] = len(torch.unique(split['test_seen']['layout'][trained]))
+    result['test_seen_not_trained_mean_error'] = errors['test_seen'][~trained].mean().item() \
+        if (~trained).any() else None
     # Unseen layouts under every impairment setting (the training setting is nominal)
     result['error_by_condition'] = {'nominal': result['test_unseen']['mean_error']}
     result['error_by_condition'].update({name[len('condition_'):]: errors[name].mean().item()
@@ -373,7 +383,8 @@ def main():
         json.dump(result, f, indent=2)
     np.savez(path + '.npz', **{f'{key}_{name}': split[name][key].cpu().numpy()
                                for name in test_sets for key in ['Y', 'layout', 'num_aps', 'num_los']},
-             **{f'errors_{name}': errors[name].cpu().numpy() for name in test_sets})
+             **{f'errors_{name}': errors[name].cpu().numpy() for name in test_sets},
+             trained_test_seen=trained.cpu().numpy())
 
     print(json.dumps(result, indent=2))
 

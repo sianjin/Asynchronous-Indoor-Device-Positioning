@@ -288,6 +288,31 @@ def layout_stat(runs, test_set, key, sub=None):
     return np.mean(values), np.std(values)
 
 
+def trained_layout_mask(run, num_layouts=500, val_frac=0.15):
+    """
+    Samples of the seen-layout test set whose layout is in the training set of a run.
+
+    The split of run_layout_experiments.py is reproduced from the seed: the
+    layouts are permuted, the first 15% are held out for validation, and the
+    training set consists of the following layouts (all of them, or as many as
+    the run was limited to).
+    """
+    arrays = np.load(run['arrays'])
+    if 'trained_test_seen' in arrays:
+        return arrays['trained_test_seen']
+    layouts = np.arange(1, num_layouts + 1)
+    order = np.random.RandomState(run['seed']).permutation(num_layouts)
+    num_val = max(1, int(round(val_frac * num_layouts)))
+    train_layouts = layouts[order[num_val:]][:run['num_train_layouts']]
+    return np.isin(arrays['layout_test_seen'], train_layouts)
+
+
+def seen_layout_error(runs):
+    """Mean and standard deviation over seeds of the error on new positions in trained layouts."""
+    values = [np.load(r['arrays'])['errors_test_seen'][trained_layout_mask(r)].mean() for r in runs]
+    return np.mean(values), np.std(values)
+
+
 def plot_layout_detected(runs, path):
     """Multi-layout study: mean error on unseen layouts versus the number of detected APs."""
     series = [
@@ -333,13 +358,12 @@ def write_layout_table(runs, path):
         ('$k$NN', 'knn', 'no'),
     ]
     lines = ['\\begin{tabular}{lccc}', '\\toprule',
-             'Method & AP pos. & Unseen layouts & Seen layouts \\\\', '\\midrule']
+             'Method & AP pos. & Unseen layouts & Training layouts \\\\', '\\midrule']
     for label, name, position in rows:
         if name not in runs:
             continue
         cells = [position]
-        for test_set in ['test_unseen', 'test_seen']:
-            mean, std = layout_stat(runs[name], test_set, 'mean_error')
+        for mean, std in [layout_stat(runs[name], 'test_unseen', 'mean_error'), seen_layout_error(runs[name])]:
             cells.append(f'${mean:.2f} \\pm {std:.2f}$')
         lines.append(f'{label} & ' + ' & '.join(cells) + ' \\\\')
     lines += ['\\bottomrule', '\\end{tabular}']
