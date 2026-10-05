@@ -91,7 +91,7 @@ python3 scripts/measure_complexity.py
 
 `make_figures.py` writes the error CDF, the error versus the number of available APs, the error map of the office and the LaTeX tables. It needs `data_test_nominal.mat` in `deep-loc` (or `--data_path`).
 
-## Results
+## Results for a fixed AP layout
 
 Distance error on the test positions, mean ± standard deviation over five seeds. Every model is trained and tested with a random sub-sample delay and a random common phase per AP (`--random_reference`):
 
@@ -107,19 +107,37 @@ Distance error on the test positions, mean ± standard deviation over five seeds
 | Early-fusion CNN, magnitude-only input | 1.78 M | 1.00 ± 0.01 | 0.81 | 1.90 |
 | kNN fingerprinting | – | 1.94 ± 0.06 | 1.64 | 3.87 |
 
-## Multi-layout study (in progress)
+## Multi-layout study
 
-To test whether a model generalizes to AP layouts that it was not trained on, `phy/wifiPosGenerateDataLayouts.m` generates many layouts with 3 to 6 APs at random positions (set `smokeTest = true` at the top for a quick test). It writes `data_layouts_train.mat`, `data_layouts_test_unseen.mat` (layouts that are not in the training set) and `data_layouts_test_seen.mat` (training layouts with new device positions).
+To test whether a model generalizes to AP layouts that it was not trained on, `phy/wifiPosGenerateDataLayouts.m` generates many layouts with 3 to 6 APs at random positions (set `smokeTest = true` at the top for a quick test). It writes `data_layouts_train.mat` (500 layouts), `data_layouts_test_unseen.mat` (60 layouts that are not in the training set), `data_layouts_test_seen.mat` (training layouts with new device positions) and the unseen layouts under four other impairment settings.
 
 ```bash
 python3 scripts/run_all.py smoke --study layouts
-python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 --results_name layouts_200ep
-python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 --results_name layouts_200ep_lr3e-4 --lr 3e-4
+python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name layouts_200ep
+python3 scripts/run_all.py --study layouts --epochs 200 --patience 200 --seeds 0 1 2 3 4 --results_name layouts_200ep_lr3e-4 --lr 3e-4
 python3 scripts/summarize_layouts.py --results_dir results/layouts_200ep results/layouts_200ep_lr3e-4
 ```
 
 Every model is run with and without the AP coordinates as input (`_appos` / `_nopos`). For the models that depend on the AP order, the APs of every sample are sorted by their coordinates.
 
+Mean distance error (m), mean ± standard deviation over five seeds. A constant estimate at the room center has an error of 2.54 m.
+
+| Model | AP positions | Unseen layouts | Seen layouts |
+|---|---|---|---|
+| Proposed | yes | 0.85 ± 0.01 | 0.77 ± 0.01 |
+| Proposed, 200 training layouts | yes | 1.23 ± 0.04 | 1.11 ± 0.03 |
+| Proposed, 100 training layouts | yes | 1.58 ± 0.04 | 1.44 ± 0.04 |
+| Proposed, magnitude-only input | yes | 0.88 ± 0.01 | 0.82 ± 0.01 |
+| Set pooling (no Transformer) | yes | 1.55 ± 0.01 | 1.38 ± 0.02 |
+| Fixed-order fusion | yes | 1.49 ± 0.04 | 1.30 ± 0.04 |
+| Early-fusion ResNet | yes | 2.05 ± 0.09 | 1.75 ± 0.10 |
+| Early-fusion CNN | yes | 2.32 ± 0.01 | 2.10 ± 0.02 |
+| Proposed | no | 2.13 ± 0.03 | 2.00 ± 0.03 |
+| Fixed-order fusion | no | 2.06 ± 0.03 | 1.92 ± 0.04 |
+| Early-fusion ResNet | no | 2.27 ± 0.04 | 2.16 ± 0.03 |
+| Early-fusion CNN | no | 2.34 ± 0.01 | 2.22 ± 0.02 |
+| kNN fingerprinting | no | 2.64 ± 0.01 | 2.70 ± 0.02 |
+
 ## Limitations
 
-The evaluation uses ray-traced channels and a single AP layout. With one layout, the AP-position embedding identifies the APs; generalization to layouts that are not seen during training is not tested.
+The evaluation uses ray-traced channels of one room. The error on unseen AP layouts is still decreasing with the number of training layouts, and the benefit of complex over magnitude-only input is small there.

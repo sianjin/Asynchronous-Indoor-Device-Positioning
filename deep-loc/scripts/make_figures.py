@@ -44,6 +44,10 @@ def parse_args():
                        default=[os.path.join(ROOT, 'results', 'camera_ready_200ep_randref'),
                                 os.path.join(ROOT, 'results', 'camera_ready_200ep_randref_lr3e-4')],
                        help='Result folders; the best one on the validation set is used per experiment')
+    parser.add_argument('--layout_results_dirs', type=str, nargs='+',
+                       default=[os.path.join(ROOT, 'results', 'layouts_200ep'),
+                                os.path.join(ROOT, 'results', 'layouts_200ep_lr3e-4')],
+                       help='Result folders of the multi-layout study')
     parser.add_argument('--output_dir', type=str,
                        default=os.path.join(os.path.dirname(ROOT), 'paper', 'figures'),
                        help='Directory to save the figures')
@@ -278,6 +282,71 @@ def write_condition_table(runs, path):
         f.write('\n'.join(lines) + '\n')
 
 
+def layout_stat(runs, test_set, key, sub=None):
+    """Mean and standard deviation over seeds of a result entry of the multi-layout study."""
+    values = [r[test_set][key] if sub is None else r[test_set][key][sub] for r in runs]
+    return np.mean(values), np.std(values)
+
+
+def plot_layout_detected(runs, path):
+    """Multi-layout study: mean error on unseen layouts versus the number of detected APs."""
+    series = [
+        ('transformer_appos', 'Proposed', BLUE, '-', 'o'),
+        ('concat_appos', 'Fixed-order fusion', ORANGE, (0, (5, 1.5)), 's'),
+        ('resnet_appos_input', 'ResNet', AQUA, (0, (3, 1, 1, 1)), '^'),
+        ('transformer_nopos', 'Proposed, no AP position', MAGENTA, (0, (1, 1)), 'D'),
+    ]
+    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 2.1))
+    for name, label, color, style, marker in series:
+        if name not in runs:
+            continue
+        counts = sorted(runs[name][0]['test_unseen']['error_by_num_detected'], key=int)
+        mean, std = np.array([layout_stat(runs[name], 'test_unseen', 'error_by_num_detected', c)
+                              for c in counts]).T
+        ax.errorbar([int(c) for c in counts], mean, yerr=std, color=color, linestyle=style, marker=marker,
+                    markersize=4, markeredgewidth=1, capsize=2, elinewidth=0.8, label=label)
+    ax.set_xticks([1, 2, 3, 4, 5, 6])
+    ax.set_ylim(0, 3.4)
+    ax.set_xlabel('Number of detected APs')
+    ax.set_ylabel('Mean distance error (m)')
+    ax.grid(True)
+    ax.legend(loc='upper center', ncol=2, handlelength=3.2, columnspacing=1.0, borderaxespad=0.2)
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def write_layout_table(runs, path):
+    """Write the LaTeX table of the multi-layout study (mean and standard deviation over seeds)."""
+    rows = [
+        ('Proposed', 'transformer_appos', 'yes'),
+        ('\\quad $200$ training layouts', 'transformer_appos_layouts200', 'yes'),
+        ('\\quad $100$ training layouts', 'transformer_appos_layouts100', 'yes'),
+        ('\\quad magnitude-only input', 'transformer_appos_magnitude', 'yes'),
+        ('\\quad set pooling', 'deepsets_appos', 'yes'),
+        ('\\quad w/o anchor position', 'transformer_nopos', 'no'),
+        ('Fixed-order fusion', 'concat_appos', 'yes'),
+        ('Fixed-order fusion', 'concat_nopos', 'no'),
+        ('ResNet', 'resnet_appos_input', 'yes'),
+        ('ResNet', 'resnet_nopos', 'no'),
+        ('CNN~\\cite{MathWorks80211azDeepLearning}', 'cnn_appos', 'yes'),
+        ('CNN~\\cite{MathWorks80211azDeepLearning}', 'cnn_nopos', 'no'),
+        ('$k$NN', 'knn', 'no'),
+    ]
+    lines = ['\\begin{tabular}{lccc}', '\\toprule',
+             'Method & AP pos. & Unseen layouts & Seen layouts \\\\', '\\midrule']
+    for label, name, position in rows:
+        if name not in runs:
+            continue
+        cells = [position]
+        for test_set in ['test_unseen', 'test_seen']:
+            mean, std = layout_stat(runs[name], test_set, 'mean_error')
+            cells.append(f'${mean:.2f} \\pm {std:.2f}$')
+        lines.append(f'{label} & ' + ' & '.join(cells) + ' \\\\')
+    lines += ['\\bottomrule', '\\end{tabular}']
+    with open(path, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+
+
 def main():
     """Main function."""
     args = parse_args()
@@ -297,6 +366,13 @@ def main():
     write_table(runs, args.table_path)
     write_condition_table(runs, os.path.join(os.path.dirname(args.table_path), 'condition_table.tex'))
     print(f"Figures saved in {args.output_dir}, table saved as {args.table_path}")
+
+    # Multi-layout study
+    layout_runs = load_runs([d for d in args.layout_results_dirs if os.path.isdir(d)])
+    if layout_runs:
+        plot_layout_detected(layout_runs, os.path.join(args.output_dir, 'layoutsDetectedAPs.pdf'))
+        write_layout_table(layout_runs, os.path.join(os.path.dirname(args.table_path), 'layout_table.tex'))
+        print("Multi-layout figure and table written")
 
 
 if __name__ == '__main__':
