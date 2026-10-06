@@ -142,4 +142,4 @@ The last column counts only the layouts that are in the training set of a run. `
 
 ## Limitations
 
-The evaluation uses ray-traced channels of one room and layouts with three to six APs. The error on unseen AP layouts continues to improve with the size of the training set, and the benefit of complex over magnitude-only input is small there (0.03 m).
+The multi-layout results are for held-out AP layouts in one room with three to six APs. The model may have learned the geometry of this room, so the results do not show transfer to other rooms or deployment without site-specific training data. The error on unseen AP layouts continues to improve with the size of the training set, and the benefit of complex over magnitude-only input is small there (0.03 m). All results use ray-traced channels.
