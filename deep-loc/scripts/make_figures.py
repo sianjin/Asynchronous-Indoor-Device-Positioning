@@ -328,8 +328,10 @@ def plot_layout_detected(runs, path):
         counts = sorted(runs[name][0]['test_unseen']['error_by_num_detected'], key=int)
         mean, std = np.array([layout_stat(runs[name], 'test_unseen', 'error_by_num_detected', c)
                               for c in counts]).T
+        # Small markers and dark error bars, so that the bars are not hidden by the markers
         ax.errorbar([int(c) for c in counts], mean, yerr=std, color=color, linestyle=style, marker=marker,
-                    markersize=4, markeredgewidth=1, capsize=2, elinewidth=0.8, label=label)
+                    markersize=3, markeredgewidth=0.6, capsize=2.5, elinewidth=0.9, capthick=0.9,
+                    ecolor=INK, label=label)
     ax.set_xticks([1, 2, 3, 4, 5, 6])
     ax.set_ylim(0, 3.9)
     ax.set_xlabel('Number of detected APs')
