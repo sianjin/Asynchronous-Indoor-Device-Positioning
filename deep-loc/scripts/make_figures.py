@@ -321,7 +321,7 @@ def plot_layout_detected(runs, path):
         ('resnet_appos_input', 'ResNet', AQUA, (0, (3, 1, 1, 1)), '^'),
         ('transformer_nopos', 'Proposed, no AP position', MAGENTA, (0, (1, 1)), 'D'),
     ]
-    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 1.9))
+    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 1.65))
     for name, label, color, style, marker in series:
         if name not in runs:
             continue
@@ -331,7 +331,7 @@ def plot_layout_detected(runs, path):
         ax.errorbar([int(c) for c in counts], mean, yerr=std, color=color, linestyle=style, marker=marker,
                     markersize=4, markeredgewidth=1, capsize=2, elinewidth=0.8, label=label)
     ax.set_xticks([1, 2, 3, 4, 5, 6])
-    ax.set_ylim(0, 3.4)
+    ax.set_ylim(0, 3.9)
     ax.set_xlabel('Number of detected APs')
     ax.set_ylabel('Mean distance error (m)')
     ax.grid(True)
