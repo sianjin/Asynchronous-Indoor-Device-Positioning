@@ -346,6 +346,7 @@ def write_layout_table(runs, path):
     """Write the LaTeX table of the multi-layout study (mean and standard deviation over seeds)."""
     rows = [
         ('Proposed', 'transformer_appos', 'yes'),
+        ('\\quad attention pooling', 'attnpool_appos', 'yes'),
         ('\\quad $200$ training layouts', 'transformer_appos_layouts200', 'yes'),
         ('\\quad $100$ training layouts', 'transformer_appos_layouts100', 'yes'),
         ('\\quad magnitude-only input', 'transformer_appos_magnitude', 'yes'),

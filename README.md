@@ -125,6 +125,7 @@ Mean distance error (m), mean ± standard deviation over five seeds. A constant 
 | Model | AP positions | Unseen layouts | Training layouts, new device positions |
 |---|---|---|---|
 | Proposed | yes | 0.85 ± 0.01 | 0.77 ± 0.02 |
+| Proposed, attention pooling | yes | 0.84 ± 0.02 | 0.77 ± 0.03 |
 | Proposed, 200 training layouts | yes | 1.23 ± 0.04 | 1.04 ± 0.08 |
 | Proposed, 100 training layouts | yes | 1.58 ± 0.04 | 1.33 ± 0.11 |
 | Proposed, magnitude-only input | yes | 0.88 ± 0.01 | 0.83 ± 0.01 |
