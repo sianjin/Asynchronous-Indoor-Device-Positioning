@@ -321,7 +321,7 @@ def plot_layout_detected(runs, path):
         ('resnet_appos_input', 'ResNet', AQUA, (0, (3, 1, 1, 1)), '^'),
         ('transformer_nopos', 'Proposed, no AP position', MAGENTA, (0, (1, 1)), 'D'),
     ]
-    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 2.1))
+    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH, 1.9))
     for name, label, color, style, marker in series:
         if name not in runs:
             continue
